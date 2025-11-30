@@ -1,6 +1,6 @@
 #ifndef INC_OLED_H_
 #define INC_OLED_H_
-
+#include "main.h"
 
 void OLED_Init(void);
 void OLED_Clear(void);

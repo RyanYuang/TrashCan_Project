@@ -8,6 +8,11 @@
 #include "ultrasonic.h"
 #include "beep.h"
 #include "main.h"
+#include "adc.h"
+#include "dma.h"
+#include "i2c.h"
+#include "tim.h"
+#include "gpio.h"
 int upEdge_date1 = 0;
 int dowmEdge_date1 = 0;
 float distance1 = 0;

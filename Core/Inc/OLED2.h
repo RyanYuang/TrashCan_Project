@@ -6,7 +6,7 @@
  */
 #ifndef INC_OLED2_H_
 #define INC_OLED2_H_
-
+#include "main.h"
 
 void OLED2_Init(void);
 void OLED2_Clear(void);
