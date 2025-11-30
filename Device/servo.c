@@ -2,7 +2,7 @@
  * servo.c
  *
  *  Created on: Nov 29, 2025
- *      Author: zeng
+ *      Author: zengryan
  */
 #include "servo.h"
 
