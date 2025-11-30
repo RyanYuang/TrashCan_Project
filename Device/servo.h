@@ -11,5 +11,9 @@
 #include "tim.h"
 
 void servo_init(void);
+void servo1_open(void);
+void servo1_close(void);
+void servo2_open(void);
+void servo2_close(void);
 
 #endif /* INC_SERVO_H_ */

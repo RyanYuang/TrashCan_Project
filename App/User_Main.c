@@ -13,6 +13,7 @@
 #include "i2c.h"
 #include "tim.h"
 #include "gpio.h"
+#include "usart.h"
 
 int upEdge_date1 = 0;
 int dowmEdge_date1 = 0;
@@ -21,21 +22,18 @@ int upEdge_date2 = 0;
 int dowmEdge_date2 = 0;
 float distance2 = 0;
 
-
-
-
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
-	if(htim == &htim1 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
+	if(htim == &htim8 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
 	{
-		 upEdge_date1 = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_3);
-		 dowmEdge_date1 = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_4);
+		 upEdge_date1 = HAL_TIM_ReadCapturedValue(&htim8, TIM_CHANNEL_3);
+		 dowmEdge_date1 = HAL_TIM_ReadCapturedValue(&htim8, TIM_CHANNEL_4);
 		 distance1 = ((dowmEdge_date1 - upEdge_date1) * 0.034) / 2;
 	}
-	else if(htim == &htim1 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+	else if(htim == &htim8 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
 	{
-		 upEdge_date2 = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_1);
-		 dowmEdge_date2 = HAL_TIM_ReadCapturedValue(&htim1, TIM_CHANNEL_2);
+		 upEdge_date2 = HAL_TIM_ReadCapturedValue(&htim8, TIM_CHANNEL_1);
+		 dowmEdge_date2 = HAL_TIM_ReadCapturedValue(&htim8, TIM_CHANNEL_2);
 		 distance2 = ((dowmEdge_date2 - upEdge_date2) * 0.034) / 2;
 	}
 }
@@ -52,6 +50,37 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
     }
 }
 
+
+uint8_t receive_buffer[1] = {0};
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if(huart == &huart2)
+	{
+		if(receive_buffer[0] == 1)
+		{
+//			OLED_ShowString(2, 1, "1ON ");
+			servo1_open();
+		}
+		else if(receive_buffer[0] == 2)
+		{
+//			OLED_ShowString(2, 1, "1OFF");
+			servo1_close();
+		}
+		else if(receive_buffer[0] == 3)
+		{
+//			OLED2_ShowString(2, 1, "2ON ");
+			servo2_open();
+		}
+		else if(receive_buffer[0] == 4)
+		{
+//			OLED2_ShowString(2, 1, "2OFF");
+			servo2_close();
+		}
+		HAL_UART_Transmit_DMA(&huart2, receive_buffer, 1);
+		HAL_UART_Receive_DMA(&huart2, receive_buffer, 1);
+	}
+}
+
 void User_Main(void)
 {
     /* 函数初始化 */
@@ -63,15 +92,16 @@ void User_Main(void)
     /* 参数定义 */
     float temperature, humidity;
     float temperature2, humidity2;
-    int duty = 200;
 
     HAL_ADCEx_Calibration_Start(&hadc1);
     while(1)
     {
 		HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, sizeof(adc_buffer) / sizeof(uint16_t));
-
+		HAL_UART_Receive_DMA(&huart2, receive_buffer, 1);
+		ultrasonic_task1();
 		OLED_ShowString(1, 1, "OLED1");
 		OLED2_ShowString(1, 1, "OLED2");
+
 		AHT30_Read(&temperature, &humidity);
 		OLED_ShowFloat(2, 1, temperature, 2, 2);
 		OLED_ShowFloat(3, 1, humidity, 2, 2);
@@ -79,15 +109,16 @@ void User_Main(void)
 		OLED_ShowFloat(2, 7, temperature2, 2, 2);
 		OLED_ShowFloat(3, 7, humidity2, 2, 2);
 
-		OLED2_ShowString(2, 1, "Duty:");
-		OLED2_ShowNum(2, 6, duty, 3);
 
-		ultrasonic_task1();
+
+
 		OLED2_ShowString(3, 1, "dis1:");
 		OLED2_ShowFloat(3, 6, distance1, 2, 2);
 		ultrasonic_task2();
 		OLED2_ShowString(4, 1, "dis2:");
 		OLED2_ShowFloat(4, 6, distance2, 2, 2);
+
+
 
     }
 }

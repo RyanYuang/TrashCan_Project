@@ -2,7 +2,6 @@
  * beep.c
  *
  *  Created on: Nov 29, 2025
- *      Author: zeng
  */
 #include "beep.h"
 

@@ -51,7 +51,7 @@ void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(beep1_GPIO_Port, beep1_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, beep1_Pin|Trig2_Pin|Trig1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(beep2_GPIO_Port, beep2_Pin, GPIO_PIN_SET);
@@ -62,11 +62,8 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13|GPIO_PIN_15, GPIO_PIN_SET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, Trig2_Pin|Trig1_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : beep1_Pin beep2_Pin */
-  GPIO_InitStruct.Pin = beep1_Pin|beep2_Pin;
+  /*Configure GPIO pins : beep1_Pin beep2_Pin Trig2_Pin Trig1_Pin */
+  GPIO_InitStruct.Pin = beep1_Pin|beep2_Pin|Trig2_Pin|Trig1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -85,13 +82,6 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_MEDIUM;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : Trig2_Pin Trig1_Pin */
-  GPIO_InitStruct.Pin = Trig2_Pin|Trig1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 }
 

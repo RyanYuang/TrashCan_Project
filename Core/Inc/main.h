@@ -61,10 +61,10 @@ void Error_Handler(void);
 #define beep1_GPIO_Port GPIOC
 #define beep2_Pin GPIO_PIN_5
 #define beep2_GPIO_Port GPIOC
-#define Trig2_Pin GPIO_PIN_9
-#define Trig2_GPIO_Port GPIOA
-#define Trig1_Pin GPIO_PIN_11
-#define Trig1_GPIO_Port GPIOA
+#define Trig2_Pin GPIO_PIN_7
+#define Trig2_GPIO_Port GPIOC
+#define Trig1_Pin GPIO_PIN_9
+#define Trig1_GPIO_Port GPIOC
 
 /* USER CODE BEGIN Private defines */
 
