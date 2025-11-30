@@ -63,26 +63,26 @@ void User_Main(void)
     HAL_ADCEx_Calibration_Start(&hadc1);
     while(1)
     {
-    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, sizeof(adc_buffer) / sizeof(uint16_t));
+		HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, sizeof(adc_buffer) / sizeof(uint16_t));
 
-    OLED_ShowString(1, 1, "OLED1");
-    OLED2_ShowString(1, 1, "OLED2");
-    AHT30_Read(&temperature, &humidity);
-    OLED_ShowFloat(2, 1, temperature, 2, 2);
-    OLED_ShowFloat(3, 1, humidity, 2, 2);
-    AHT302_Read(&temperature2, &humidity2);
-    OLED_ShowFloat(2, 7, temperature2, 2, 2);
-    OLED_ShowFloat(3, 7, humidity2, 2, 2);
+		OLED_ShowString(1, 1, "OLED1");
+		OLED2_ShowString(1, 1, "OLED2");
+		AHT30_Read(&temperature, &humidity);
+		OLED_ShowFloat(2, 1, temperature, 2, 2);
+		OLED_ShowFloat(3, 1, humidity, 2, 2);
+		AHT302_Read(&temperature2, &humidity2);
+		OLED_ShowFloat(2, 7, temperature2, 2, 2);
+		OLED_ShowFloat(3, 7, humidity2, 2, 2);
 
-     OLED2_ShowString(2, 1, "Duty:");
-     OLED2_ShowNum(2, 6, duty, 3);
+		OLED2_ShowString(2, 1, "Duty:");
+		OLED2_ShowNum(2, 6, duty, 3);
 
-    ultrasonic_task1();
-    OLED2_ShowString(3, 1, "dis1:");
-    OLED2_ShowFloat(3, 6, distance1, 2, 2);
-    ultrasonic_task2();
-    OLED2_ShowString(4, 1, "dis2:");
-    OLED2_ShowFloat(4, 6, distance2, 2, 2);
+		ultrasonic_task1();
+		OLED2_ShowString(3, 1, "dis1:");
+		OLED2_ShowFloat(3, 6, distance1, 2, 2);
+		ultrasonic_task2();
+		OLED2_ShowString(4, 1, "dis2:");
+		OLED2_ShowFloat(4, 6, distance2, 2, 2);
 
     }
 }
