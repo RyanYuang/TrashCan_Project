@@ -1,12 +1,6 @@
 #include "stdio.h"
 #include "string.h"
 
-#include "OLED.h"
-#include "OLED2.h"
-#include "aht30.h"
-#include "servo.h"
-#include "ultrasonic.h"
-#include "beep.h"
 #include "main.h"
 #include "adc.h"
 #include "dma.h"
@@ -14,6 +8,14 @@
 #include "tim.h"
 #include "gpio.h"
 #include "usart.h"
+
+#include "OLED.h"
+#include "OLED2.h"
+#include "aht30.h"
+#include "servo.h"
+#include "ultrasonic.h"
+#include "beep.h"
+#include "rgb.h"
 
 int upEdge_date1 = 0;
 int dowmEdge_date1 = 0;
@@ -38,15 +40,21 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 	}
 }
 
-uint16_t adc_buffer[2];
+uint16_t adc_buffer[4];
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
     if (hadc == &hadc1)
     {
+      /* MQ-2 */
       uint32_t value1 = adc_buffer[0];  // 从 DMA 缓冲读取
       OLED_ShowNum(4, 1, value1, 4);  // 原始值 (4 位，右对齐)
       uint32_t value2 = adc_buffer[1];  // 从 DMA 缓冲读取
       OLED_ShowNum(4, 7, value2, 4);  // 原始值 (4 位，右对齐)
+      /* TCRT5000 */
+//      uint32_t value3 = adc_buffer[2];  // 从 DMA 缓冲读取
+//      OLED2_ShowNum(1, 1, value3, 4);  // 原始值 (4 位，右对齐)
+//      uint32_t value4 = adc_buffer[3];  // 从 DMA 缓冲读取
+//      OLED2_ShowNum(1, 7, value4, 4);  // 原始值 (4 位，右对齐)
     }
 }
 
@@ -98,19 +106,18 @@ void User_Main(void)
     {
 		HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, sizeof(adc_buffer) / sizeof(uint16_t));
 		HAL_UART_Receive_DMA(&huart2, receive_buffer, 1);
-		ultrasonic_task1();
-		OLED_ShowString(1, 1, "OLED1");
-		OLED2_ShowString(1, 1, "OLED2");
+		ultrasonic_task1();// 超声波1
+		ultrasonic_task2();// 超声波2
 
-		AHT30_Read(&temperature, &humidity);
+//		OLED_ShowString(1, 1, "OLED1");
+//		OLED2_ShowString(1, 1, "OLED2");
+
+		AHT30_Read(&temperature, &humidity);     // 温湿度
 		OLED_ShowFloat(2, 1, temperature, 2, 2);
 		OLED_ShowFloat(3, 1, humidity, 2, 2);
-		AHT302_Read(&temperature2, &humidity2);
+		AHT302_Read(&temperature2, &humidity2);  // 温湿度
 		OLED_ShowFloat(2, 7, temperature2, 2, 2);
 		OLED_ShowFloat(3, 7, humidity2, 2, 2);
-
-
-
 
 		OLED2_ShowString(3, 1, "dis1:");
 		OLED2_ShowFloat(3, 6, distance1, 2, 2);
