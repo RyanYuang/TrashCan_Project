@@ -24,6 +24,7 @@ int upEdge_date2 = 0;
 int dowmEdge_date2 = 0;
 float distance2 = 0;
 
+// 超声波1回调函数
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
 	if(htim == &htim8 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
@@ -91,7 +92,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 void User_Main(void)
 {
-    /* 函数初始化 */
+			//ADC校准
+    HAL_ADCEx_Calibration_Start(&hadc1);
+    /* 设备初始化 */
     servo_init();
     OLED_Init();
     OLED2_Init();
@@ -100,30 +103,30 @@ void User_Main(void)
     /* 参数定义 */
     float temperature, humidity;
     float temperature2, humidity2;
-
-    HAL_ADCEx_Calibration_Start(&hadc1);
     while(1)
     {
-		HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, sizeof(adc_buffer) / sizeof(uint16_t));
-		HAL_UART_Receive_DMA(&huart2, receive_buffer, 1);
-		ultrasonic_task1();// 超声波1
-		ultrasonic_task2();// 超声波2
+			// 读取ADC数据·
+			HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, sizeof(adc_buffer) / sizeof(uint16_t));
+			// 接受串口数据
+			HAL_UART_Receive_DMA(&huart2, receive_buffer, 1);
+			ultrasonic_task1();// 超声波1
+			ultrasonic_task2();// 超声波2
 
-//		OLED_ShowString(1, 1, "OLED1");
-//		OLED2_ShowString(1, 1, "OLED2");
+	//		OLED_ShowString(1, 1, "OLED1");
+	//		OLED2_ShowString(1, 1, "OLED2");
+			
+			AHT30_Read(&temperature, &humidity);     // 温湿度
+			OLED_ShowFloat(2, 1, temperature, 2, 2);
+			OLED_ShowFloat(3, 1, humidity, 2, 2);
+			AHT302_Read(&temperature2, &humidity2);  // 温湿度
+			OLED_ShowFloat(2, 7, temperature2, 2, 2);
+			OLED_ShowFloat(3, 7, humidity2, 2, 2);
 
-		AHT30_Read(&temperature, &humidity);     // 温湿度
-		OLED_ShowFloat(2, 1, temperature, 2, 2);
-		OLED_ShowFloat(3, 1, humidity, 2, 2);
-		AHT302_Read(&temperature2, &humidity2);  // 温湿度
-		OLED_ShowFloat(2, 7, temperature2, 2, 2);
-		OLED_ShowFloat(3, 7, humidity2, 2, 2);
-
-		OLED2_ShowString(3, 1, "dis1:");
-		OLED2_ShowFloat(3, 6, distance1, 2, 2);
-		ultrasonic_task2();
-		OLED2_ShowString(4, 1, "dis2:");
-		OLED2_ShowFloat(4, 6, distance2, 2, 2);
+			OLED2_ShowString(3, 1, "dis1:");
+			OLED2_ShowFloat(3, 6, distance1, 2, 2);
+			ultrasonic_task2();
+			OLED2_ShowString(4, 1, "dis2:");
+			OLED2_ShowFloat(4, 6, distance2, 2, 2);
 
 
 

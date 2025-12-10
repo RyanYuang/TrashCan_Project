@@ -7,7 +7,9 @@
 #include "aht30.h"
 
 #define AHT30_ADDRESS 0x70
-
+/**
+ * @brief 初始化AHT30
+ */
 void AHT30_Init(void)
 {
     uint8_t readBuffer;
@@ -20,6 +22,11 @@ void AHT30_Init(void)
     }
 }
 
+/**
+ * @brief 读取AHT30的温湿度数据
+ * @param Temperature 指向温度值的指针
+ * @param Humidity 指向湿度值的指针
+ */
 void AHT30_Read(float *Temperature, float *Humidity)
 {
     uint8_t sendbuffer[3] = {0xAC, 0x33, 0x00};
@@ -40,6 +47,9 @@ void AHT30_Read(float *Temperature, float *Humidity)
     }
 }
 
+/**
+ * @brief 初始化AHT302
+ */
 void AHT302_Init(void)
 {
     uint8_t readBuffer;
@@ -52,6 +62,11 @@ void AHT302_Init(void)
     }
 }
 
+/**
+ * @brief 读取AHT302的温湿度数据
+ * @param Temperature 指向温度值的指针
+ * @param Humidity 指向湿度值的指针
+ */
 void AHT302_Read(float *Temperature, float *Humidity)
 {
     uint8_t sendbuffer[3] = {0xAC, 0x33, 0x00};
