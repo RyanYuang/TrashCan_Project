@@ -52,10 +52,7 @@ void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, Red_Pin|Green_Pin|Blue_Pin|beep1_Pin
-                          |Trig2_Pin|Trig1_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(beep2_GPIO_Port, beep2_Pin, GPIO_PIN_SET);
+                          |beep2_Pin|Trig2_Pin|Trig1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12|GPIO_PIN_14, GPIO_PIN_RESET);

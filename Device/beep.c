@@ -12,7 +12,7 @@
  */
 void Beep1_TurnOn(void)
 {
-	HAL_GPIO_WritePin(beep1_GPIO_Port, beep1_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(beep1_GPIO_Port, beep1_Pin, GPIO_PIN_SET);
 }
 
 
@@ -23,7 +23,7 @@ void Beep1_TurnOn(void)
  */
 void Beep1_TurnOff(void)
 {
-	HAL_GPIO_WritePin(beep1_GPIO_Port, beep1_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(beep1_GPIO_Port, beep1_Pin, GPIO_PIN_RESET);
 }
 
 /**
