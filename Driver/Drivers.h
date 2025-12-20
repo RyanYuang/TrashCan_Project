@@ -1,7 +1,7 @@
 #ifndef __DRIVERS_H__
 #define __DRIVERS_H__
-
-// 通用引脚结构体
+#include "main.h"
+// 通用引脚结构体 
 typedef struct { GPIO_TypeDef* Port; uint16_t Pin; } Pin_Struct;
 
 // 外设驱动

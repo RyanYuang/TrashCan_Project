@@ -1,6 +1,6 @@
 #include "gpio.h"
 #include "OLED_Font.h"
-
+#if 0
 /*引脚配置*/
 #define OLED_W_SCL(x)		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_15, x)
 #define OLED_W_SDA(x)		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, x)
@@ -345,3 +345,4 @@ void OLED_Init(void)
 		
 	OLED_Clear();				//OLED清屏
 }
+#endif

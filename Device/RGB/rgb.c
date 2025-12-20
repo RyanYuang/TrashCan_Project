@@ -6,6 +6,9 @@
  */
 #include "rgb.h"
 
+
+
+
 /**
  * @brief 打开RGB灯的红色通道
  */
@@ -83,14 +86,14 @@ void Blue_TurnOn(void)
 	HAL_GPIO_WritePin(Blue_GPIO_Port, Blue_Pin, GPIO_PIN_RESET);
 }
 /**
- * @brief 关闭RGB灯的蓝色通道
+ * @brief 关闭RGB灯的蓝色通道，当前版本支持关闭
  */
 void Blue_TurnOff(void)
 {
 	HAL_GPIO_WritePin(Blue_GPIO_Port, Blue_Pin, GPIO_PIN_SET);
 }
 /**
- * @brief 闪烁RGB灯的蓝色通道
+ * @brief 闪烁RGB灯的蓝色通道，当前版本支持阻塞；
  * @param count 闪烁次数
  */
 void Blue_Twinkle(unsigned char count)

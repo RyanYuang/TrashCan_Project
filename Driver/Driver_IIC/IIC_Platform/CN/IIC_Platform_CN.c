@@ -8,7 +8,7 @@
  * @author RyanYuang
  */
 
-#include "IIC_Platform.h"
+#include "IIC_Platform_CN.h"
 
 /*============================================================================*/
 /*                         全局变量                                           */
