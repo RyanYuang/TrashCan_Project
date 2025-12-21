@@ -75,6 +75,11 @@ static uint32_t oled_pow10(uint8_t exponent)
     return result;
 }
 
+OLED_Status_Enum OLED_Device_Detection(OLED_Handle* handler)
+{
+	return (IIC_Scan(&oled_device_drivers[handler->ID].i2c) > 0)? OLED_Status_OK : OLED_Status_Error;
+}
+
 OLED_Status_Enum OLED_Device_Create(OLED_Handle* handler, Pin_Struct* SDA, Pin_Struct* SCL, uint8_t address)
 {
     if (handler == NULL || SDA == NULL || SCL == NULL || address == 0) {

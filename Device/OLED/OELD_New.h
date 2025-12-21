@@ -30,6 +30,11 @@ typedef struct OLED_Handle{
 
 
 // Device Drver
+/* @brief OLED设备扫描
+ * @param handler OLED设备句柄
+ * 发现设备返回OLED_Status_OK，未发现设备返回OLED_Status_Error
+ */
+OLED_Status_Enum OLED_Device_Detection(OLED_Handle* handler);
 
 /* @brief OLED设备驱动句柄
  * @param handler OLED设备句柄
