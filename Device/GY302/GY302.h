@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "Drivers.h"
+#include "GY302_reg.h"
 
 // ********** Marco ********** //
 #define GY302_MAX_NUM 5                 // GY302设备最大数量
@@ -22,6 +23,14 @@ typedef struct {
 } GY302_Handle;
 
 // ********** External API ********** //
+
+// Device Drver
+/* @brief GY302设备扫描
+ * @param handler OLED设备句柄
+ * 发现设备返回GY302_Status_OK，未发现设备返回GY302_Status_Error
+ */
+GY302_Status_Enum GY302_Device_Detection(GY302_Handle* handler);
+
 /* @brief 创建GY302设备
  * @param handler GY302设备句柄指针
  * @param SDA SDA引脚结构体指针

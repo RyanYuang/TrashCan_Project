@@ -1,26 +1,8 @@
 #include "GY302.h"
 #include <stddef.h>
+#include <stdint.h>
 
-// ********** GY302 Register Addresses ********** //
-#define GY302_ADDR_HIGH         0x5C    // 7-bit address with ADDR pin high
-#define GY302_ADDR_LOW          0x23    // 7-bit address with ADDR pin low
 
-// ********** GY302 Command Set ********** //
-#define GY302_POWER_DOWN        0x00    // No active state
-#define GY302_POWER_ON          0x01    // Waiting for measurement command
-#define GY302_RESET             0x07    // Reset data register value
-
-// ********** Measurement Modes ********** //
-#define GY302_CONTINUOUS_H_RES_MODE     0x10    // Start measurement at 1lx resolution
-#define GY302_CONTINUOUS_H_RES_MODE2    0x11    // Start measurement at 0.5lx resolution
-#define GY302_CONTINUOUS_L_RES_MODE     0x13    // Start measurement at 4lx resolution
-#define GY302_ONE_TIME_H_RES_MODE       0x20    // Start measurement at 1lx resolution once
-#define GY302_ONE_TIME_H_RES_MODE2      0x21    // Start measurement at 0.5lx resolution once
-#define GY302_ONE_TIME_L_RES_MODE       0x23    // Start measurement at 4lx resolution once
-
-// ********** Change Measurement Time ********** //
-#define GY302_CHANGE_MEASUREMENT_TIME_H 0x40    // Change measurement time (High byte)
-#define GY302_CHANGE_MEASUREMENT_TIME_L 0x60    // Change measurement time (Low byte)
 
 // ********** Device Driver Structure ********** //
 typedef struct {
@@ -59,15 +41,37 @@ static GY302_Status_Enum gy302_read_data(GY302_Device_Driver* dev, uint8_t* data
     if (dev == NULL || data == NULL || len == 0) {
         return GY302_Status_Error;
     }
+    uint8_t res = GY302_Status_OK;
     
     // For BH1750, we read data directly from the device without specifying a register
-    // So we pass 0 as register address (it's ignored by the sensor)
-    return (IIC_Read_Reg(&dev->i2c, dev->address, 0, len, data) == IIC_OK)
-        ? GY302_Status_OK
-        : GY302_Status_Error;
+    // The IIC_Read_Reg function is not suitable here.
+    // So we implement the read process manually.
+    IIC_Start(&dev->i2c);
+
+    IIC_Send_Byte(&dev->i2c, (dev->address << 1) | 1); // Write address
+    if (!IIC_Wait_Ack(&dev->i2c)) {
+        IIC_Stop(&dev->i2c);
+    }
+    for(int i = 0; i < len; i++) {
+        if (i == (len - 1)) {
+            data[i] = IIC_Read_Byte(&dev->i2c, NO_ACK); // Last byte
+        } else {
+            data[i] = IIC_Read_Byte(&dev->i2c, ACK);    // Other bytes
+        }
+    }
+    IIC_Stop(&dev->i2c);
+
+
+    return res;
 }
 
 // ********** Public Functions ********** //
+
+GY302_Status_Enum GY302_Device_Detection(GY302_Handle* handler)
+{
+	return (IIC_Scan(&gy302_device_drivers[handler->ID].i2c) > 0)? GY302_Status_OK : GY302_Status_Error;
+}
+
 GY302_Status_Enum GY302_Device_Create(GY302_Handle* handler, Pin_Struct* SDA, Pin_Struct* SCL, uint8_t address)
 {
     if (handler == NULL || SDA == NULL || SCL == NULL || address == 0) {
@@ -121,6 +125,7 @@ GY302_Status_Enum GY302_Read_Lux(GY302_Handle* handler, float* lux)
     if (gy302_read_data(dev, data, 2) != GY302_Status_OK) {
         return GY302_Status_Error;
     }
+    printf("0X%X,0X%X\r\n",data[0],data[1]);
     
     // Calculate lux value
     uint16_t raw_value = (data[0] << 8) | data[1];
