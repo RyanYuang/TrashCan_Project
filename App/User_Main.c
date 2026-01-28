@@ -80,15 +80,10 @@ void User_Main(void)
 		printf("GY302 Not Detected!\r\n");
 	}
 
-	
-
-
-	
-
-
 	while(1)
 	{
 		GY302_State = GY302_Read_Lux(&gy302,&GY302_Data);
+		printf("@1,2,3,4.5\r\n");
 //		printf("%f,%d\r\n",GY302_Data,GY302_State);
 		OLED_ShowString(&oled1, 0, 0, "IIC Test OK!1", 16);
 		OLED_ShowNum(&oled1,0,2,GY302_Data,3);

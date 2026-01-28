@@ -125,7 +125,7 @@ GY302_Status_Enum GY302_Read_Lux(GY302_Handle* handler, float* lux)
     if (gy302_read_data(dev, data, 2) != GY302_Status_OK) {
         return GY302_Status_Error;
     }
-    printf("0X%X,0X%X\r\n",data[0],data[1]);
+//    printf("0X%X,0X%X\r\n",data[0],data[1]);
     
     // Calculate lux value
     uint16_t raw_value = (data[0] << 8) | data[1];
