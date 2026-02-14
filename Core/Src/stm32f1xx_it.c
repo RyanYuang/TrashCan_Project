@@ -22,6 +22,10 @@
 #include "stm32f1xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "stdio.h"
+#include "User_Main.h"
+#include "uart_protocol.h"
+#include "protocol_parser.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -51,7 +55,41 @@
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void hard_fault_handler_c(unsigned int *hardfault_args)
+{
+    unsigned int stacked_pc;
 
+    stacked_pc = hardfault_args[6];
+
+    printf("Hard Fault at PC=0x%08x\r\n", stacked_pc);
+
+    // For Cortex-M3/M4/M7, you can get more details from the fault status registers
+    uint32_t cfsr = (*((volatile unsigned long *)(0xE000ED28)));
+    printf("CFSR = 0x%08lx\r\n", cfsr);
+
+    // If Bus Fault
+    if (cfsr & 0x0000FF00) {
+        printf("Bus Fault\r\n");
+        // Bus Fault Address Register
+        uint32_t bfar = (*((volatile unsigned long *)(0xE000ED38)));
+        printf("BFAR = 0x%08lx\r\n", bfar);
+    }
+
+    // If Memory Management Fault
+    if (cfsr & 0x000000FF) {
+        printf("Memory Manage Fault\r\n");
+        // Memory Manage Fault Address Register
+        uint32_t mmar = (*((volatile unsigned long *)(0xE000ED34)));
+        printf("MMAR = 0x%08lx\r\n", mmar);
+    }
+
+    // Usage Fault
+    if (cfsr & 0xFFFF0000) {
+        printf("Usage Fault\r\n");
+    }
+
+    while(1);
+}
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -88,7 +126,11 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+    __asm("TST LR, #4");
+    __asm("ITE EQ");
+    __asm("MRSEQ R0, MSP");
+    __asm("MRSNE R0, PSP");
+    __asm("B hard_fault_handler_c"); // Branch to C handler
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -254,7 +296,10 @@ void USART2_IRQHandler(void)
   /* USER CODE END USART2_IRQn 0 */
   HAL_UART_IRQHandler(&huart2);
   /* USER CODE BEGIN USART2_IRQn 1 */
-
+  
+  // 注意：旧的解析代码已移到 HAL_UART_RxCpltCallback 中
+  // 新的协议模块会自动处理接收和解析
+  
   /* USER CODE END USART2_IRQn 1 */
 }
 
@@ -273,5 +318,34 @@ void TIM8_CC_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+
+/**
+  * @brief UART接收完成回调函数（在中断中执行）
+  * @note 每收到一个字节后被HAL库自动调用，并在此处直接解析完整帧
+  */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if(huart->Instance == USART2)
+	{
+	  // 1. 调用协议模块接收函数（积累字节，检测帧结束符）
+	  UART_Protocol_RxCallback(huart);
+
+	  // 2. 如果接收到完整的一帧，立即解析
+	  if (UART_Protocol_IsFrameReady()) {
+		  char rxFrame[256];
+		  uint16_t len = UART_Protocol_GetFrame(rxFrame, sizeof(rxFrame));
+
+		  if (len > 0) {
+			  // 打印接收到的消息（通过串口2）
+			  printf("收到: %s\r\n", rxFrame);
+
+			  // 在中断中直接解析协议帧
+			  // 解析后会自动更新 Direction 和 Speed（通过回调）
+			  Protocol_Parse(rxFrame);
+		  }
+	  }
+	}
+
+}
 
 /* USER CODE END 1 */
