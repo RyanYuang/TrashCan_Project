@@ -66,4 +66,10 @@ AHT30_Status_Enum AHT30_Reset(AHT30_Handle* handler);
  */
 AHT30_Status_Enum AHT30_Get_Status(AHT30_Handle* handler);
 
+/* @brief 测试AHT30设备是否在总线上
+ * @param handler AHT30设备句柄指针
+ * @retval AHT30_Status_Enum 操作状态
+ */
+AHT30_Status_Enum AHT30_Device_Detection(AHT30_Handle* handler);
+
 #endif /* INC_AHT30_H_ */

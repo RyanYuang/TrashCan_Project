@@ -297,12 +297,16 @@ uint8_t IIC_Read_Reg(
     }
 
     /* 3. 发送寄存器地址 */
-    IIC_Send_Byte(i2c, Reg_address);
-    if (IIC_Wait_Ack(i2c) != 0) {
-        IIC_Stop(i2c);
-        error_code = IIC_Error_ACK_REG;
-        return error_code;
+    if(Reg_address != 0)
+    {
+		IIC_Send_Byte(i2c, Reg_address);
+		if (IIC_Wait_Ack(i2c) != 0) {
+			IIC_Stop(i2c);
+			error_code = IIC_Error_ACK_REG;
+			return error_code;
+		}
     }
+
 
     /* 4. 发送重复起始条件 */
     IIC_Start(i2c);

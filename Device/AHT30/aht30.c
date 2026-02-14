@@ -2,7 +2,7 @@
 #include <stddef.h>
 
 // ********** AHT30 Command Set ********** //
-#define AHT30_INIT_COMMAND           0xE1    // 初始化命令
+#define AHT30_INIT_COMMAND           0xAC    // 初始化命令
 #define AHT30_TRIGGER_MEASUREMENT    0xAC    // 触发测量命令
 #define AHT30_SOFT_RESET             0xBA    // 软复位命令
 
@@ -60,6 +60,7 @@ static AHT30_Status_Enum aht30_send_command(AHT30_Device_Driver* dev, uint8_t co
 static AHT30_Status_Enum aht30_read_data(AHT30_Device_Driver* dev, uint8_t* data, uint8_t len)
 {
     if (dev == NULL || data == NULL || len == 0) {
+        printf("Invalid parameters,%s,%d\n",__func__,__LINE__);
         return AHT30_Status_Error;
     }
     
@@ -74,6 +75,7 @@ static AHT30_Status_Enum aht30_read_data(AHT30_Device_Driver* dev, uint8_t* data
 AHT30_Status_Enum AHT30_Device_Create(AHT30_Handle* handler, Pin_Struct* SDA, Pin_Struct* SCL, uint8_t address)
 {
     if (handler == NULL || SDA == NULL || SCL == NULL) {
+        printf("Invalid parameters,%s,%d\n",__func__,__LINE__);
         return AHT30_Status_Error;
     }
     
@@ -102,8 +104,9 @@ AHT30_Status_Enum AHT30_Init(AHT30_Handle* handler)
     }
 
     // Send initialization command
-    uint8_t init_params[2] = {0x08, 0x00};
+    uint8_t init_params[2] = {0x33,0x00};
     if (aht30_send_command(dev, AHT30_INIT_COMMAND, init_params, 2) != AHT30_Status_OK) {
+    	printf("AHT30 发送指令失败 %s %d\r\n",__func__,__LINE__);
         return AHT30_Status_Error;
     }
     
@@ -113,12 +116,9 @@ AHT30_Status_Enum AHT30_Init(AHT30_Handle* handler)
     
     // Check if initialization was successful
     uint8_t status;
-    if (aht30_read_data(dev, &status, 1) != AHT30_Status_OK) {
-        return AHT30_Status_Error;
-    }
-    
-    // Check calibration bit
-    if ((status & AHT30_STATUS_CALIBRATION) == 0) {
+    if (aht30_read_data(dev, &status, 1) != AHT30_Status_OK)
+    {
+    	printf("initialization");
         return AHT30_Status_Error;
     }
     
@@ -130,16 +130,15 @@ AHT30_Status_Enum AHT30_Read_Data(AHT30_Handle* handler, float* temperature, flo
 {
     AHT30_Device_Driver* dev = get_driver(handler);
     if (dev == NULL || temperature == NULL || humidity == NULL) {
+        printf("Invalid parameters,%s,%d\n",__func__,__LINE__);
         return AHT30_Status_Error;
-    }
-    
-    if (!dev->initialized) {
-        return AHT30_Status_Uninitialized;
     }
     
     // Trigger measurement
     uint8_t trigger_params[2] = {0x33, 0x00};
-    if (aht30_send_command(dev, AHT30_TRIGGER_MEASUREMENT, trigger_params, 2) != AHT30_Status_OK) {
+    if (aht30_send_command(dev, AHT30_TRIGGER_MEASUREMENT, trigger_params, 2) != AHT30_Status_OK)
+    {
+        printf("Send Command Error in %s,%d\n",__func__,__LINE__);
         return AHT30_Status_Error;
     }
     
@@ -147,15 +146,18 @@ AHT30_Status_Enum AHT30_Read_Data(AHT30_Handle* handler, float* temperature, flo
     for (volatile int i = 0; i < 80000; i++);  // Simple delay for ~80ms
     
     // Read status and data
-    uint8_t data[6];
-    if (aht30_read_data(dev, data, 6) != AHT30_Status_OK) {
+    uint8_t data[7];
+    if (aht30_read_data(dev, data, 7) != AHT30_Status_OK)
+    {
+        printf("aht30_read_data Error in %s,%d\n",__func__,__LINE__);
         return AHT30_Status_Error;
     }
     
-    // Check if device is busy
-    if ((data[0] & AHT30_STATUS_BUSY) != 0) {
-        return AHT30_Status_Busy;
-    }
+//    // Check if device is busy
+//    if ((data[0] & AHT30_STATUS_BUSY) != 0) {
+//    	printf("device is busy %s,%d\n",__func__,__LINE__);
+//        return AHT30_Status_Busy;
+//    }
     
     // Parse humidity data (20 bits)
     uint32_t hum_raw = ((uint32_t)data[1] << 12) | ((uint32_t)data[2] << 4) | ((uint32_t)data[3] >> 4);
@@ -210,4 +212,10 @@ AHT30_Status_Enum AHT30_Get_Status(AHT30_Handle* handler)
     }
     
     return AHT30_Status_OK;
+}
+
+AHT30_Status_Enum AHT30_Device_Detection(AHT30_Handle* handler)
+{
+	return (IIC_Scan(&aht30_device_drivers[handler->ID].i2c) > 0)? AHT30_Status_OK : AHT30_Status_Error;
+;
 }
