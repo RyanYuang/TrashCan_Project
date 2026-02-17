@@ -9,16 +9,8 @@
 #include "usart.h"
 #include "Drivers.h"
 
-#include "OLED2.h"
-#include "aht30.h"
-#include "servo.h"
-#include "ultrasonic.h"
-#include "beep.h"
-#include "rgb.h"
-#include "OELD_New.h"
-#include "Driver_Timer.h"
-#include "GY302.h"
-#include "TB6612.h"
+
+#include "Devices.h"
 
 // 串口协议模块
 #include "uart_protocol.h"
