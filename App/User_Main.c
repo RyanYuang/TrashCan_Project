@@ -86,6 +86,9 @@ int TB6612_Speed = 0;
 int TB6612_SpeedDiff = 0;
 int TB6612_Dir = 0;
 
+// 数据上报标志（2000ms周期）
+volatile uint8_t g_DataReportFlag = 0;
+
 void User_Main(void)
 {
 	// 初始化阈值配置（使用默认值）
@@ -107,11 +110,15 @@ void User_Main(void)
 	// AHT30 初始化
 	User_AHT30_Init();
 	// TB6612 初始化
-//	TB6612_Init();
-//	TB6612_SetSpeed(500,500);
+	TB6612_Init();
+	TB6612_SetSpeed(0,0);
 
 	// 清空OLED
 	OLED_Clear(&oled1);
+	
+	// 启动TIM6定时器（2000ms周期）
+	HAL_TIM_Base_Start_IT(&htim6);
+	
 	while(1)
 	{
 		// GY302 数据处理
@@ -122,39 +129,83 @@ void User_Main(void)
 		// AHT30 数据处理
 		aht30_state = AHT30_Read_Data(&aht30, &temperature, &humidity);
 
-		// OLED数据显示
-		OLED_ShowString(&oled1, 0, 0, "Gas Car", 16);
+		// 检查数据上报标志（TIM6中断每2000ms设置一次）
+		if(g_DataReportFlag) {
+			g_DataReportFlag = 0;  // 清除标志
+			
+			// OLED数据显示
+			OLED_ShowString(&oled1, 0, 0, "Gas Car", 16);
 
-		// 打印所有传感器数据到串口
-		printf("@%.2f,%.2f,%.2f,%.2f\r\n",
-				temperature, humidity, PPMData, GY302_Data);
+			// 打印所有传感器数据到串口
+			printf("@%.2f,%.2f,%.2f,%.2f\r\n",
+					temperature, humidity, PPMData, GY302_Data);
 
-		// OLED显示MQ-2数据
-		sprintf((char*)oled_buffer, "MQ2:%.1fPPM", PPMData);
-		OLED_ShowString(&oled1, 0, 2, (char*)oled_buffer, 16);
+			// OLED显示MQ-2数据
+			sprintf((char*)oled_buffer, "MQ2:%.1fPPM", PPMData);
+			OLED_ShowString(&oled1, 0, 2, (char*)oled_buffer, 16);
 
-		// OLED显示GY302数据
-		sprintf((char*)oled_buffer, "Lux:%.1f", GY302_Data);
-		OLED_ShowString(&oled1, 0, 4, (char*)oled_buffer, 16);
+			// OLED显示GY302数据
+			sprintf((char*)oled_buffer, "Lux:%.1f", GY302_Data);
+			OLED_ShowString(&oled1, 0, 4, (char*)oled_buffer, 16);
 
-		// OLED显示AHT30温度
-		if (aht30_state == AHT30_Status_OK) {
-			sprintf((char*)oled_buffer, "Temp:%.1fC", temperature);
-			OLED_ShowString(&oled1, 0, 6, (char*)oled_buffer, 16);
-		} else {
-			OLED_ShowString(&oled1, 0, 6, "Temp Err", 16);
+			// OLED显示AHT30温度
+			if (aht30_state == AHT30_Status_OK) {
+				sprintf((char*)oled_buffer, "Temp:%.1fC", temperature);
+				OLED_ShowString(&oled1, 0, 6, (char*)oled_buffer, 16);
+			} else {
+				OLED_ShowString(&oled1, 0, 6, "Temp Err", 16);
+			}
+
+			// OLED显示AHT30湿度
+			if (aht30_state == AHT30_Status_OK) {
+				sprintf((char*)oled_buffer, "Hum:%.1f%%", humidity);
+				OLED_ShowString(&oled1, 0, 8, (char*)oled_buffer, 16);
+			} else {
+				OLED_ShowString(&oled1, 0, 8, "Hum Err", 16);
+			}
 		}
-
-		// OLED显示AHT30湿度
-		if (aht30_state == AHT30_Status_OK) {
-			sprintf((char*)oled_buffer, "Hum:%.1f%%", humidity);
-			OLED_ShowString(&oled1, 0, 8, (char*)oled_buffer, 16);
-		} else {
-			OLED_ShowString(&oled1, 0, 8, "Hum Err", 16);
+		
+		// 阈值判断和报警处理
+		SensorData_t sensorData = {
+			.temperature = temperature,
+			.humidity = humidity,
+			.co_concentration = PPMData,
+			.light_intensity = GY302_Data
+		};
+		
+		AlertLevel_t alertLevel = ThresholdConfig_CheckAlert(&sensorData);
+		
+		if(alertLevel == ALERT_DANGER) {
+//			printf("ALERT_DANGER\r\n");
+			// 危险级别：蜂鸣器持续鸣叫，RGB显示红色
+			Beep1_TurnOn();
+			Red_TurnOn();
+			Green_TurnOff();
+			Blue_TurnOff();
 		}
+		else if(alertLevel == ALERT_WARNING) {
+			// 警告级别：蜂鸣器响500ms然后暂停，RGB显示红色
+//			printf("ALERT_WARNING\r\n");
+			Beep1_TurnOn();
+			HAL_Delay(500);
+			Beep1_TurnOff();
+			Red_TurnOn();
+			Green_TurnOff();
+			Blue_TurnOff();
+		}
+		else {
+			// 正常状态：关闭蜂鸣器，RGB显示绿色
+//			printf("NORMAEL\r\n");
+			Beep1_TurnOff();
+			Red_TurnOff();
+			Green_TurnOn();
+			Blue_TurnOff();
+		}
+		
 
-		HAL_Delay(1000); // 增加延时，避免数据刷新过快，方便观察
-
+		
+		// 短延时，避免CPU空转，保持系统响应性
+		HAL_Delay(10);
 	}
 }
 
@@ -280,11 +331,11 @@ void TB6612_Ctrl(void)
 	}
 	if(Dircetion == 3)
 	{
-		TB6612_SpeedDiff = 1;
+		TB6612_SpeedDiff = -1;
 	}
 	if(Dircetion == 4)
 	{
-		TB6612_SpeedDiff = -1;
+		TB6612_SpeedDiff = 1;
 	}
 	if(Dircetion == 0)
 	{
@@ -296,6 +347,7 @@ void TB6612_Ctrl(void)
 	int left_Speed = (TB6612_Speed * TB6612_Dir) + (TB6612_Speed * 0.7 * TB6612_SpeedDiff);
 	int right_Speed = (TB6612_Speed * TB6612_Dir) - (TB6612_Speed * 0.7 * TB6612_SpeedDiff);
 	TB6612_SetSpeed(left_Speed, right_Speed);
+
 }
 
 /**
@@ -326,4 +378,7 @@ void OnCommandReceived(ControlCommand_t cmd)
         default:
             break;
     }
+    
+    // 立即控制电机以提高响应速度
+    TB6612_Ctrl();
 }

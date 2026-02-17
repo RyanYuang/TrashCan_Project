@@ -94,6 +94,7 @@ void hard_fault_handler_c(unsigned int *hardfault_args)
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_adc1;
+extern TIM_HandleTypeDef htim6;
 extern TIM_HandleTypeDef htim8;
 extern DMA_HandleTypeDef hdma_usart2_rx;
 extern DMA_HandleTypeDef hdma_usart2_tx;
@@ -317,6 +318,28 @@ void TIM8_CC_IRQHandler(void)
   /* USER CODE END TIM8_CC_IRQn 1 */
 }
 
+/**
+  * @brief This function handles TIM6 global interrupt.
+  */
+void TIM6_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM6_IRQn 0 */
+	static uint8_t times = 0;
+
+  /* USER CODE END TIM6_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim6);
+  /* USER CODE BEGIN TIM6_IRQn 1 */
+  // 设置数据上报标志（每2000ms触发一次）
+  extern volatile uint8_t g_DataReportFlag;
+  if(times++ == 2)
+  {
+	  times = 0;
+	  g_DataReportFlag = 1;
+  }
+
+  /* USER CODE END TIM6_IRQn 1 */
+}
+
 /* USER CODE BEGIN 1 */
 
 /**
@@ -327,25 +350,24 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	if(huart->Instance == USART2)
 	{
-	  // 1. 调用协议模块接收函数（积累字节，检测帧结束符）
-	  UART_Protocol_RxCallback(huart);
+		// 1. 调用协议模块接收函数（积累字节，检测帧结束符）
+		UART_Protocol_RxCallback(huart);
 
-	  // 2. 如果接收到完整的一帧，立即解析
-	  if (UART_Protocol_IsFrameReady()) {
-		  char rxFrame[256];
-		  uint16_t len = UART_Protocol_GetFrame(rxFrame, sizeof(rxFrame));
+		// 2. 如果接收到完整的一帧，立即解析
+		if (UART_Protocol_IsFrameReady()) {
+			char rxFrame[256];
+			uint16_t len = UART_Protocol_GetFrame(rxFrame, sizeof(rxFrame));
 
-		  if (len > 0) {
-			  // 打印接收到的消息（通过串口2）
-			  printf("收到: %s\r\n", rxFrame);
+			if (len > 0) {
+				// 打印接收到的消息（通过串口2）
+				printf("收到: %s\r\n", rxFrame);
 
-			  // 在中断中直接解析协议帧
-			  // 解析后会自动更新 Direction 和 Speed（通过回调）
-			  Protocol_Parse(rxFrame);
-		  }
-	  }
+				// 在中断中直接解析协议帧
+				// 解析后会自动更新 Direction 和 Speed（通过回调）
+				Protocol_Parse(rxFrame);
+			}
+		}
 	}
-
 }
 
 /* USER CODE END 1 */

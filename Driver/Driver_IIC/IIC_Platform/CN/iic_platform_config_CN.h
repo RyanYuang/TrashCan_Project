@@ -138,7 +138,7 @@ extern "C" {
  * @brief 启用/禁用调试输出
  * @details 设置为 1 启用 printf 调试输出，设置为 0 禁用
  */
-#define IIC_DEBUG_ENABLE 1
+#define IIC_DEBUG_ENABLE 0
 
 #if IIC_DEBUG_ENABLE
     #include <stdio.h>

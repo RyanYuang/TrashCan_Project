@@ -121,6 +121,7 @@ static ParseResult_t Parse_ControlCommand(const char *frame)
     }
     
     int cmdValue = atoi(cmdStr);
+    printf("cmdValue:%d\r\n",cmdValue);
     
     // 验证指令码范围
     if (cmdValue < 0 || cmdValue > 8) {

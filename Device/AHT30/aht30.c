@@ -42,16 +42,16 @@ static AHT30_Status_Enum aht30_send_command(AHT30_Device_Driver* dev, uint8_t co
     if (dev == NULL) {
         return AHT30_Status_Error;
     }
-    
+
     // For AHT30, we need to send command followed by parameters
     uint8_t data[3] = {command, 0, 0};  // Max 3 bytes for command + parameters
-    
+
     if (params != NULL && param_len > 0) {
         for (int i = 0; i < param_len && i < 2; i++) {
             data[i+1] = params[i];
         }
     }
-    
+
     return (IIC_Write_Reg(&dev->i2c, dev->address, data[0], param_len, &data[1]) == IIC_OK)
         ? AHT30_Status_OK
         : AHT30_Status_Error;
@@ -63,7 +63,7 @@ static AHT30_Status_Enum aht30_read_data(AHT30_Device_Driver* dev, uint8_t* data
         printf("Invalid parameters,%s,%d\n",__func__,__LINE__);
         return AHT30_Status_Error;
     }
-    
+
     // For AHT30, we read data directly from the device without specifying a register
     // So we pass 0 as register address (it's ignored by the sensor)
     return (IIC_Read_Reg(&dev->i2c, dev->address, 0, len, data) == IIC_OK)
@@ -78,7 +78,7 @@ AHT30_Status_Enum AHT30_Device_Create(AHT30_Handle* handler, Pin_Struct* SDA, Pi
         printf("Invalid parameters,%s,%d\n",__func__,__LINE__);
         return AHT30_Status_Error;
     }
-    
+
     // Use default address if not specified
     if (address == 0) {
         address = AHT30_ADDRESS;
@@ -109,11 +109,11 @@ AHT30_Status_Enum AHT30_Init(AHT30_Handle* handler)
     	printf("AHT30 发送指令失败 %s %d\r\n",__func__,__LINE__);
         return AHT30_Status_Error;
     }
-    
+
     // Wait for initialization
     // Note: Using a simple loop delay since we don't have access to HAL_Delay here
     for (volatile int i = 0; i < 10000; i++);  // Simple delay
-    
+
     // Check if initialization was successful
     uint8_t status;
     if (aht30_read_data(dev, &status, 1) != AHT30_Status_OK)
@@ -121,7 +121,7 @@ AHT30_Status_Enum AHT30_Init(AHT30_Handle* handler)
     	printf("initialization");
         return AHT30_Status_Error;
     }
-    
+
     dev->initialized = 1;
     return AHT30_Status_OK;
 }
@@ -130,43 +130,43 @@ AHT30_Status_Enum AHT30_Read_Data(AHT30_Handle* handler, float* temperature, flo
 {
     AHT30_Device_Driver* dev = get_driver(handler);
     if (dev == NULL || temperature == NULL || humidity == NULL) {
-        printf("Invalid parameters,%s,%d\n",__func__,__LINE__);
+//        printf("Invalid parameters,%s,%d\n",__func__,__LINE__);
         return AHT30_Status_Error;
     }
-    
+
     // Trigger measurement
     uint8_t trigger_params[2] = {0x33, 0x00};
     if (aht30_send_command(dev, AHT30_TRIGGER_MEASUREMENT, trigger_params, 2) != AHT30_Status_OK)
     {
-        printf("Send Command Error in %s,%d\n",__func__,__LINE__);
+//        printf("Send Command Error in %s,%d\n",__func__,__LINE__);
         return AHT30_Status_Error;
     }
-    
+
     // Wait for measurement to complete
     for (volatile int i = 0; i < 80000; i++);  // Simple delay for ~80ms
-    
+
     // Read status and data
     uint8_t data[7];
     if (aht30_read_data(dev, data, 7) != AHT30_Status_OK)
     {
-        printf("aht30_read_data Error in %s,%d\n",__func__,__LINE__);
+//        printf("aht30_read_data Error in %s,%d\n",__func__,__LINE__);
         return AHT30_Status_Error;
     }
-    
+
 //    // Check if device is busy
 //    if ((data[0] & AHT30_STATUS_BUSY) != 0) {
 //    	printf("device is busy %s,%d\n",__func__,__LINE__);
 //        return AHT30_Status_Busy;
 //    }
-    
+
     // Parse humidity data (20 bits)
     uint32_t hum_raw = ((uint32_t)data[1] << 12) | ((uint32_t)data[2] << 4) | ((uint32_t)data[3] >> 4);
     *humidity = (float)hum_raw * 100.0f / 1048576.0f;  // 1048576 = 2^20
-    
+
     // Parse temperature data (20 bits)
     uint32_t temp_raw = (((uint32_t)data[3] & 0x0F) << 16) | ((uint32_t)data[4] << 8) | (uint32_t)data[5];
     *temperature = (float)temp_raw * 200.0f / 1048576.0f - 50.0f;
-    
+
     return AHT30_Status_OK;
 }
 
@@ -176,18 +176,18 @@ AHT30_Status_Enum AHT30_Reset(AHT30_Handle* handler)
     if (dev == NULL) {
         return AHT30_Status_Error;
     }
-    
+
     // Send soft reset command
     if (aht30_send_command(dev, AHT30_SOFT_RESET, NULL, 0) != AHT30_Status_OK) {
         return AHT30_Status_Error;
     }
-    
+
     // Wait for reset to complete
     for (volatile int i = 0; i < 20000; i++);  // Simple delay
-    
+
     // Mark as uninitialized
     dev->initialized = 0;
-    
+
     return AHT30_Status_OK;
 }
 
@@ -197,20 +197,20 @@ AHT30_Status_Enum AHT30_Get_Status(AHT30_Handle* handler)
     if (dev == NULL) {
         return AHT30_Status_Error;
     }
-    
+
     uint8_t status;
     if (aht30_read_data(dev, &status, 1) != AHT30_Status_OK) {
         return AHT30_Status_Error;
     }
-    
+
     if ((status & AHT30_STATUS_BUSY) != 0) {
         return AHT30_Status_Busy;
     }
-    
+
     if ((status & AHT30_STATUS_CALIBRATION) == 0) {
         return AHT30_Status_Uninitialized;
     }
-    
+
     return AHT30_Status_OK;
 }
 
