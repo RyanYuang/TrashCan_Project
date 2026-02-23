@@ -13,5 +13,6 @@
 void ultrasonic_init(void);
 void ultrasonic_task1(void);
 void ultrasonic_task2(void);
+int  ultrasonic_get_distance(void);
 
 #endif /* INC_ULTRASONIC_H_ */
