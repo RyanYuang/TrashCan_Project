@@ -19,5 +19,8 @@ void Green_Twinkle(unsigned char count);
 void Blue_TurnOn(void);
 void Blue_TurnOff(void);
 void Blue_Twinkle(unsigned char count);
+void UV_Open(void);
+void UV_Close(void);
+void UV_Key_Scan(void);
 
 #endif /* RGB_H_ */

@@ -71,6 +71,10 @@ void Error_Handler(void);
 #define Trig2_GPIO_Port GPIOC
 #define Trig1_Pin GPIO_PIN_9
 #define Trig1_GPIO_Port GPIOC
+#define UV_LED_Pin GPIO_PIN_8
+#define UV_LED_GPIO_Port GPIOA
+#define UV_KEY_Pin GPIO_PIN_12
+#define UV_KEY_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 

@@ -104,34 +104,34 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 
       if(value2 < 1000)	                             /* TCRT5000 1  */
 	  {
-    	  full_flag1 = 1;
+    	  full_flag2 = 1;
     	  OLED_ShowString(4, 1, "Full    ");
 	  }
       else
       {
-    	  full_flag1 = 0;
+    	  full_flag2 = 0;
     	  OLED_ShowString(4, 1, "Not Full");
       }
       if(value3 < 1000)	                             /* TCRT5000 2 */
 	  {
-    	  full_flag2 = 1;
+    	  full_flag1 = 1;
 		  OLED2_ShowString(4, 1, "Full    ");
 	  }
       else
 	  {
-    	  full_flag2 = 0;
+    	  full_flag1 = 0;
 		  OLED2_ShowString(4, 1, "Not Full");
 	  }
 
-      if(value1 >= 1000)
+      if(value1 >= 1500)
       {
-    	  Beep2_TurnOn();
+    	  Beep1_TurnOn();
 		  Red_TurnOn();
       }
-      if(value4 >= 1000)
+      if(value4 >= 1500)
 	  {
 		  Beep2_TurnOn();
-		  Red_TurnOn();
+		  Green_TurnOn();
 	  }
     }
 }
@@ -158,6 +158,14 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		{
 			servo2_close();
 		}
+		else if(receive_buffer[0] == 5)
+		{
+			UV_Open();  // 语音控制打开紫外灯
+		}
+		else if(receive_buffer[0] == 6)
+		{
+			UV_Close();  // 语音控制关闭紫外灯
+		}
 		HAL_UART_Transmit_DMA(&huart2, receive_buffer, 1);
 		HAL_UART_Receive_DMA(&huart2, receive_buffer, 1);
 	}
@@ -183,9 +191,10 @@ void User_Main(void)
 		HAL_UART_Receive_DMA(&huart2, receive_buffer, 1);
 		ultrasonic_task1();// 超声波1
 		ultrasonic_task2();// 超声波2
+		UV_Key_Scan();     // UV灯按键扫描
 
-		OLED_ShowString(1, 1, "Other waste");
-		OLED2_ShowString(1, 1, "Food waste");
+		OLED_ShowString(1, 1, "Food waste");
+		OLED2_ShowString(1, 1, "Other waste");
 
 		AHT30_Read(&temperature, &humidity);     // 温湿度
 		OLED_ShowFloat(2, 1, temperature, 2, 2);
@@ -196,18 +205,23 @@ void User_Main(void)
 
 		if(temperature > 28)
 		{
-			Beep2_TurnOn();
+			Beep1_TurnOn();
 			Red_TurnOn();
 		}
 		if(temperature2 > 28)
 		{
 			Beep2_TurnOn();
-			Red_TurnOn();
+			Green_TurnOn();
 		}
-	    else if(value1 < 1000 && value4 < 1000 && temperature < 28 && temperature2 < 28)
+	    if(value1 < 1500 && temperature < 28)
 		{
-	    	Beep2_TurnOff();
+			Beep1_TurnOff();
 			Red_TurnOff();
+		}
+		if(value4 < 1500 && temperature2 < 28)
+		{
+			Beep2_TurnOff();
+			Green_TurnOff();
 		}
     }
 }

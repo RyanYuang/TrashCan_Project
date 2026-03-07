@@ -86,3 +86,59 @@ void Blue_Twinkle(unsigned char count)
 	}
 	HAL_GPIO_WritePin(Blue_GPIO_Port, Blue_Pin, GPIO_PIN_SET);
 }
+
+void UV_Open(void)
+{
+	HAL_GPIO_WritePin(UV_LED_GPIO_Port, UV_LED_Pin, GPIO_PIN_SET);
+}
+
+void UV_Close(void)
+{
+	HAL_GPIO_WritePin(UV_LED_GPIO_Port, UV_LED_Pin, GPIO_PIN_RESET);
+}
+
+/**
+ * @brief       UV灯按键检测和控制
+ * @param       无
+ * @retval      无
+ * @note        按键按下切换UV灯状态，带防抖动
+ */
+void UV_Key_Scan(void)
+{
+	static uint8_t key_state = 0;  // 0=未按下, 1=已按下
+	static uint8_t uv_state = 0;   // 0=关闭, 1=打开
+
+	// 读取按键状态（低电平=按下）
+	if(HAL_GPIO_ReadPin(UV_KEY_GPIO_Port, UV_KEY_Pin) == GPIO_PIN_SET)
+	{
+		// 按键按下
+		if(key_state == 0)
+		{
+			// 检测到按键按下的边沿
+			HAL_Delay(20);  // 防抖动延时
+
+			// 再次确认按键状态
+			if(HAL_GPIO_ReadPin(UV_KEY_GPIO_Port, UV_KEY_Pin) == GPIO_PIN_SET)
+			{
+				key_state = 1;  // 标记按键已按下
+
+				// 切换UV灯状态
+				if(uv_state == 0)
+				{
+					UV_Open();
+					uv_state = 1;
+				}
+				else
+				{
+					UV_Close();
+					uv_state = 0;
+				}
+			}
+		}
+	}
+	else
+	{
+		// 按键释放
+		key_state = 0;
+	}
+}

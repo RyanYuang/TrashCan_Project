@@ -74,3 +74,5 @@
 | debug           | RX       | PA9(TX)      | ✔    |
 | **camer**       | **TX**   | **PC11(RX)** | ✔    |
 | **camer**       | **RX**   | **PC10(TX)** | ✔    |
+| UV灯            | IO       | PA8          |      |
+| **按键**        | **IO**   | **PA12**     |      |
