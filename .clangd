@@ -1,0 +1,12 @@
+CompileFlags:
+  Add:
+    - "--target=arm-none-eabi"
+    - "-D__arm__"
+  Remove:
+    - "--specs=*"          # clangd 不认识 newlib nano specs
+    - "-fcyclomatic-complexity" # STM32CubeIDE 私有 flag
+    - "-mfloat-abi=*"     # 某些 clangd 版本不支持，去掉避免报错
+    - "-mthumb"            # 某些 clangd 版本不支持
+
+Diagnostics:
+  UnusedIncludes: None    # 嵌入式项目头文件较多，关闭未使用提示

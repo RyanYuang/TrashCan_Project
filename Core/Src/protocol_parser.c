@@ -124,8 +124,9 @@ static ParseResult_t Parse_ControlCommand(const char *frame)
     printf("cmdValue:%d\r\n",cmdValue);
     
     // 验证指令码范围
-    if (cmdValue < 0 || cmdValue > 8) {
+    if (cmdValue < 0 || cmdValue > 10) {
         g_LastCommand = CMD_INVALID;
+        printf("指令无效:%d\r\n",cmdValue);
         return PARSE_ERROR;
     }
     
@@ -396,6 +397,10 @@ const char* Protocol_GetCommandString(ControlCommand_t cmd)
             return "Speed 75%";
         case CMD_SPEED_100:
             return "Speed 100%";
+        case CMD_PATROL_START:
+            return "Patrol Start";
+        case CMD_PATROL_STOP:
+            return "Patrol Stop";
         default:
             return "Invalid";
     }

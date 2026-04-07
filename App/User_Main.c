@@ -20,6 +20,10 @@
 #include "stdio.h"
 #include "MQ-2.h"
 
+// 巡逻模块	
+#include "patrol.h"
+
+
 /* USER MACRO AREA BEGIN */
 // 例如: #define MY_CUSTOM_FEATURE_ENABLED
 #define USER_PTR					// 用户打印
@@ -104,6 +108,10 @@ void User_Main(void)
 	// TB6612 初始化
 	TB6612_Init();
 	TB6612_SetSpeed(0,0);
+	//超声波初始化
+	ultrasonic_init();
+	// 巡逻模块初始化
+	Patrol_Init();
 
 	// 清空OLED
 	OLED_Clear(&oled1);
@@ -121,6 +129,13 @@ void User_Main(void)
 		// AHT30 数据处理
 		aht30_state = AHT30_Read_Data(&aht30, &temperature, &humidity);
 
+		// 超声波数据处理
+		ultrasonic_task1(); // 触发超声波测距1
+
+		Patrol_Task(); // 巡逻状态机任务（非阻塞）
+
+
+
 		// 检查数据上报标志（TIM6中断每2000ms设置一次）
 		if(g_DataReportFlag) {
 			g_DataReportFlag = 0;  // 清除标志
@@ -129,8 +144,8 @@ void User_Main(void)
 			OLED_ShowString(&oled1, 0, 0, "Gas Car", 16);
 
 			// 打印所有传感器数据到串口
-			printf("@%.2f,%.2f,%.2f,%.2f\r\n",
-					temperature, humidity, PPMData, GY302_Data);
+			printf("@%.2f,%.2f,%.2f,%.2f,%d\r\n",
+					temperature, humidity, PPMData, GY302_Data, Patrol_IsObstacle());
 
 			// OLED显示MQ-2数据
 			sprintf((char*)oled_buffer, "MQ2:%.1fPPM", PPMData);
@@ -366,7 +381,12 @@ void OnCommandReceived(ControlCommand_t cmd)
             // 5~8 转换为 1~4 的速度档位
             Speed = cmd - 4;
             break;
-            
+		case CMD_PATROL_START:
+			Patrol_Start();
+			break;
+		case CMD_PATROL_STOP:
+			Patrol_Stop();
+			break;
         default:
             break;
     }

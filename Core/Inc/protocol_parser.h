@@ -39,6 +39,8 @@ typedef enum {
     CMD_SPEED_50 = 6,     // 速度50%
     CMD_SPEED_75 = 7,     // 速度75%
     CMD_SPEED_100 = 8,    // 速度100%
+    CMD_PATROL_START = 9,    // 启动巡逻
+    CMD_PATROL_STOP = 10,    // 停止巡逻
     CMD_INVALID = 0xFF    // 无效指令
 } ControlCommand_t;
 

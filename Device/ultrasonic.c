@@ -59,11 +59,13 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 		 uint32_t upEdge_date1 = HAL_TIM_ReadCapturedValue(&htim8, TIM_CHANNEL_3);
 		 uint32_t dowmEdge_date1 = HAL_TIM_ReadCapturedValue(&htim8, TIM_CHANNEL_4);
 		 uint32_t distance1 = ((dowmEdge_date1 - upEdge_date1) * 0.034) / 2;
-		 if(distance1 > 5 && distance1 < 55)
-		 {
-			 	 printf("Dis %d\r\n",distance1);
-			 	distance = distance1;
-		 }
+		 distance = distance1;
+//     printf("Dis %d\r\n",distance1);
+//		 if(distance1 > 5 && distance1 < 55)
+//		 {
+//			 	 printf("Dis %d\r\n",distance1);
+//			 	distance = distance1;
+//		 }
 
 	}
 }
