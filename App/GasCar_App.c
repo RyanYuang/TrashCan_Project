@@ -8,7 +8,6 @@
  */
 
 #include "GasCar_App.h"
-#include "TB6612.h"
 #include "stdio.h"
 
 /* ==================== 全局变量定义 ==================== */
