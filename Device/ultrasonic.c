@@ -5,6 +5,41 @@
  *      Author: zeng
  */
 #include "ultrasonic.h"
+#include <stdio.h>
+
+/* TIM8 预分频 72-1、72MHz -> 计数 1tick = 1us；HC-SR04 往返时间(us)/58 ≈ 距离(cm) */
+#define ULTRASONIC_US_PER_CM 58U
+
+static volatile uint16_t s_distance_cm_1;
+static volatile uint8_t s_capture_ready_1;
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+	if (htim->Instance != TIM8) {
+		return;
+	}
+
+	/* CH3 上升沿 + CH4 下降沿（间接 TI），在 CH4 完成一次脉冲宽度捕获 */
+	if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4) {
+		uint32_t rise = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_3);
+		uint32_t fall = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_4);
+		uint32_t width_us;
+
+		if (fall >= rise) {
+			width_us = fall - rise;
+		} else {
+			width_us = (uint32_t)__HAL_TIM_GET_AUTORELOAD(htim) - rise + fall + 1U;
+		}
+
+		if (width_us < 150U || width_us > 38000U) {
+			s_distance_cm_1 = 0;
+		} else {
+			s_distance_cm_1 = (uint16_t)(width_us / ULTRASONIC_US_PER_CM);
+		}
+		s_capture_ready_1 = 1U;
+	}
+}
+
 /**
  * @brief 初始化超声波传感器
  */
@@ -39,4 +74,29 @@ void ultrasonic_task2(void)
   HAL_Delay(20);
 }
 
+uint16_t Ultrasonic_Get_Distance_Cm_1(void)
+{
+	return s_distance_cm_1;
+}
+
+void Ultrasonic_Test_PrintBoth(void)
+{
+	uint8_t ok1;
+
+	s_capture_ready_1 = 0;
+	ultrasonic_task1();
+	{
+		uint32_t t0 = HAL_GetTick();
+		while (!s_capture_ready_1 && (HAL_GetTick() - t0) < 60U) {
+		}
+	}
+	ok1 = s_capture_ready_1;
+	printf("[UltraTest] D1=%u cm %s\r\n",
+	       (unsigned)Ultrasonic_Get_Distance_Cm_1(),
+	       ok1 ? "OK" : "timeout");
+
+	/* 传感器2：当前 Cube 仅配置 TIM8 CH3/CH4 接回波1，未配置 CH1/CH2 时仅触发测距脉冲供示波器/后续扩展 */
+	ultrasonic_task2();
+	printf("[UltraTest] D2= (need TIM8 CH1/CH2 echo pin) pulse sent\r\n");
+}
 

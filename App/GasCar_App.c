@@ -89,7 +89,6 @@ int EnvCar_App_Init(void)
     
     // 初始化蜂鸣器
     Beep1_TurnOff();
-    Beep2_TurnOff();
     
     // 初始化RGB指示灯
     Red_TurnOff();
