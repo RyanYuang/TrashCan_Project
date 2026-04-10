@@ -36,8 +36,8 @@ extern "C" {
 // 用户打印使能
 #define PLATFORM_USER_PRINT_ENABLE  1
 
-// 调试串口选择（默认UART2）
-#define PLATFORM_DEBUG_UART         huart2
+// 调试串口选择（默认UART1，与协议等旧代码共用句柄；printf 重定向见 Platform/Log/platform_log_config.h）
+#define PLATFORM_DEBUG_UART         huart1
 
 /* ========================= 功能模块使能 ========================= */
 // IIC 总线使能

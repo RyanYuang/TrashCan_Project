@@ -24,6 +24,9 @@ extern "C" {
 /* ========================= 应用框架 ========================= */
 #include "app_framework.h"
 
+/* ========================= 日志（输出端口见 Log/platform_log_config.h） ========================= */
+#include "Log/platform_log.h"
+
 /* ========================= 平台信息 ========================= */
 #define PLATFORM_NAME       "STM32 IoT Platform"
 #define PLATFORM_AUTHOR     "Your Name"
