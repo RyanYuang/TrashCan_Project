@@ -47,6 +47,32 @@ static JC278A_Handle s_wireless_handle;
 static uint32_t s_last_tick = 0;
 static uint8_t s_display_page = 0;  // OLED显示页面索引
 
+static int EnvCar_OLED_Init(void)
+{
+    OLED_Status_Enum oled_status;
+    Pin_Struct oled_sda = {GPIOB, GPIO_PIN_14};
+    Pin_Struct oled_scl = {GPIOB, GPIO_PIN_15};
+
+    oled_status = OLED_Device_Create(&s_oled_handle, &oled_sda, &oled_scl, 0x3C);
+    if (oled_status != OLED_Status_OK) {
+        return -1;
+    }
+
+    oled_status = OLED_Device_Detection(&s_oled_handle);
+    if (oled_status != OLED_Status_OK) {
+        return -1;
+    }
+
+    oled_status = OLED_Init(&s_oled_handle);
+    if (oled_status != OLED_Status_OK) {
+        return -1;
+    }
+
+    OLED_Clear(&s_oled_handle);
+    OLED_ShowString(&s_oled_handle, 0, 0, "EnvCar Init", 16);
+    return 0;
+}
+
 /* ==================== 外部API实现 ==================== */
 
 /**
@@ -69,7 +95,11 @@ int EnvCar_App_Init(void)
     Red_TurnOff();
     Green_TurnOff();
     Blue_TurnOff();
-    
+
+    // 初始化OLED显示屏
+    if (EnvCar_OLED_Init() != 0) {
+        return -1;
+    }
     
     // 初始化系统状态
     g_System_Status.current_state = ENVCAR_STATE_IDLE;
