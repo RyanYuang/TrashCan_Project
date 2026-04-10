@@ -5,7 +5,9 @@
  *      Author: zeng
  */
 #include "ultrasonic.h"
+#include "platform_log.h"
 #include <stdio.h>
+#include <string.h>
 
 /* TIM8 预分频 72-1、72MHz -> 计数 1tick = 1us；HC-SR04 往返时间(us)/58 ≈ 距离(cm) */
 #define ULTRASONIC_US_PER_CM 58U
@@ -91,12 +93,14 @@ void Ultrasonic_Test_PrintBoth(void)
 		}
 	}
 	ok1 = s_capture_ready_1;
-	printf("[UltraTest] D1=%u cm %s\r\n",
-	       (unsigned)Ultrasonic_Get_Distance_Cm_1(),
-	       ok1 ? "OK" : "timeout");
+	{
+		char line[96];
+		int n = snprintf(line, sizeof(line), "%u\r\n",
+				 (unsigned)Ultrasonic_Get_Distance_Cm_1());
+		if (n > 0) {
+			PLATFORM_LOG_WRITE(line, (size_t)n);
+		}
+	}
 
-	/* 传感器2：当前 Cube 仅配置 TIM8 CH3/CH4 接回波1，未配置 CH1/CH2 时仅触发测距脉冲供示波器/后续扩展 */
-	ultrasonic_task2();
-	printf("[UltraTest] D2= (need TIM8 CH1/CH2 echo pin) pulse sent\r\n");
 }
 

@@ -22,7 +22,7 @@ void User_Main(void)
     while (1) {
         EnvCar_App_Task();
 
-        if (HAL_GetTick() - ultra_test_tick >= 1000U) {
+        if (HAL_GetTick() - ultra_test_tick >= 50U) {
             ultra_test_tick = HAL_GetTick();
             Ultrasonic_Test_PrintBoth();
         }
