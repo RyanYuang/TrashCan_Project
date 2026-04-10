@@ -1,0 +1,38 @@
+CompileFlags:
+  Add:
+    - -x
+    - c
+    - -std=gnu11
+    - -DUSE_HAL_DRIVER
+    - -DSTM32F103xE
+    - -DDEBUG
+    - -IApp
+    - -ICore/Inc
+    - -ICore/Src
+    - -IDevice
+    - -IDevice/AHT30
+    - -IDevice/Beep
+    - -IDevice/GY302
+    - -IDevice/JC278A
+    - -IDevice/MQ-2
+    - -IDevice/OLED
+    - -IDevice/RGB
+    - -IDevice/TB6612
+    - -IDriver
+    - -IDriver/Driver_Timer
+    - -IPlatform
+    - -IProjects
+    - -ISystem
+    - -ICompileFiles
+    - -IDrivers/STM32F1xx_HAL_Driver/Inc
+    - -IDrivers/STM32F1xx_HAL_Driver/Inc/Legacy
+    - -IDrivers/CMSIS/Device/ST/STM32F1xx/Include
+    - -IDrivers/CMSIS/Include
+    - -mcpu=cortex-m3
+    - -mthumb
+
+Diagnostics:
+  UnusedIncludes: None
+
+Index:
+  Background: Build

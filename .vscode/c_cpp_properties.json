@@ -1,0 +1,42 @@
+{
+  "configurations": [
+    {
+      "name": "Win32",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/App",
+        "${workspaceFolder}/Core/Inc",
+        "${workspaceFolder}/Core/Src",
+        "${workspaceFolder}/Device",
+        "${workspaceFolder}/Device/AHT30",
+        "${workspaceFolder}/Device/Beep",
+        "${workspaceFolder}/Device/GY302",
+        "${workspaceFolder}/Device/JC278A",
+        "${workspaceFolder}/Device/MQ-2",
+        "${workspaceFolder}/Device/OLED",
+        "${workspaceFolder}/Device/RGB",
+        "${workspaceFolder}/Device/TB6612",
+        "${workspaceFolder}/Driver",
+        "${workspaceFolder}/Driver/Driver_Timer",
+        "${workspaceFolder}/Platform",
+        "${workspaceFolder}/Projects",
+        "${workspaceFolder}/System",
+        "${workspaceFolder}/CompileFiles",
+        "${workspaceFolder}/Drivers/STM32F1xx_HAL_Driver/Inc",
+        "${workspaceFolder}/Drivers/STM32F1xx_HAL_Driver/Inc/Legacy",
+        "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F1xx/Include",
+        "${workspaceFolder}/Drivers/CMSIS/Include"
+      ],
+      "defines": [
+        "USE_HAL_DRIVER",
+        "STM32F103xE",
+        "DEBUG"
+      ],
+      "compilerPath": "arm-none-eabi-gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "gnu++17",
+      "intelliSenseMode": "gcc-arm"
+    }
+  ],
+  "version": 4
+}
