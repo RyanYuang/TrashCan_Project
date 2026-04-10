@@ -9,6 +9,7 @@
 
 #include "GasCar_App.h"
 #include "stdio.h"
+#include "usbd_cdc_if.h"
 
 /* ==================== 全局变量定义 ==================== */
 
