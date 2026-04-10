@@ -31,7 +31,10 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <math.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include "Driver_Timer.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/

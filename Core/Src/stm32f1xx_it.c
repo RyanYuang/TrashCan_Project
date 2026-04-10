@@ -330,12 +330,12 @@ void TIM6_IRQHandler(void)
   HAL_TIM_IRQHandler(&htim6);
   /* USER CODE BEGIN TIM6_IRQn 1 */
   // 设置数据上报标志（每2000ms触发一次）
-  extern volatile uint8_t g_DataReportFlag;
-  if(times++ == 2)
-  {
-	  times = 0;
-	  g_DataReportFlag = 1;
-  }
+//  extern volatile uint8_t g_DataReportFlag;
+//  if(times++ == 2)
+//  {
+//	  times = 0;
+//	  g_DataReportFlag = 1;
+//  }
 
   /* USER CODE END TIM6_IRQn 1 */
 }
