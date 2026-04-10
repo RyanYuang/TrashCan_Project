@@ -15,6 +15,12 @@
 static volatile uint16_t s_distance_cm_1;
 static volatile uint8_t s_capture_ready_1;
 
+/**
+ * @brief  TIM 输入捕获中断回调：在 TIM8 CH4 完成一次回波脉宽测量后更新距离
+ * @note   使用 CH3 上升沿 + CH4 下降沿（间接 TI）；脉宽换算为 cm 写入 s_distance_cm_1，并置位 s_capture_ready_1
+ * @param  htim 触发中断的定时器句柄
+ * @retval 无
+ */
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
 	if (htim->Instance != TIM8) {
@@ -43,7 +49,9 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 }
 
 /**
- * @brief 初始化超声波传感器
+ * @brief  启动 TIM8 基时与输入捕获通道，供超声波测距使用
+ * @note   开启 CH3/CH4（传感器1回波）及 CH1/CH2（传感器2，依硬件接线）
+ * @retval 无
  */
 void ultrasonic_init(void)
 {
@@ -53,8 +61,11 @@ void ultrasonic_init(void)
    HAL_TIM_IC_Start(&htim8, TIM_CHANNEL_1);
    HAL_TIM_IC_Start_IT(&htim8, TIM_CHANNEL_2);
 }
+
 /**
- * @brief 超声波传感器1任务
+ * @brief  超声波模块 1：输出触发脉冲并等待固定窗口
+ * @note   Trig1 拉高约 1ms 后拉低，清零 TIM8 计数器，延时 20ms 供回波与捕获处理
+ * @retval 无
  */
 void ultrasonic_task1(void)
 {
@@ -64,8 +75,11 @@ void ultrasonic_task1(void)
   __HAL_TIM_SET_COUNTER(&htim8, 0);
   HAL_Delay(20);
 }
+
 /**
- * @brief 超声波传感器2任务
+ * @brief  超声波模块 2：输出触发脉冲并等待固定窗口
+ * @note   Trig2 拉高约 1ms 后拉低，清零 TIM8 计数器，延时 20ms；回波需 TIM8 CH1/CH2 等硬件配合
+ * @retval 无
  */
 void ultrasonic_task2(void)
 {
@@ -76,31 +90,13 @@ void ultrasonic_task2(void)
   HAL_Delay(20);
 }
 
+/**
+ * @brief  读取超声波 1 最近一次换算得到的距离
+ * @note   单位厘米；无效或超量程时可能为 0，依赖 CH3/CH4 捕获与回调更新
+ * @retval 距离（cm）
+ */
 uint16_t Ultrasonic_Get_Distance_Cm_1(void)
 {
 	return s_distance_cm_1;
-}
-
-void Ultrasonic_Test_PrintBoth(void)
-{
-	uint8_t ok1;
-
-	s_capture_ready_1 = 0;
-	ultrasonic_task1();
-	{
-		uint32_t t0 = HAL_GetTick();
-		while (!s_capture_ready_1 && (HAL_GetTick() - t0) < 60U) {
-		}
-	}
-	ok1 = s_capture_ready_1;
-	{
-		char line[96];
-		int n = snprintf(line, sizeof(line), "%u\r\n",
-				 (unsigned)Ultrasonic_Get_Distance_Cm_1());
-		if (n > 0) {
-			PLATFORM_LOG_WRITE(line, (size_t)n);
-		}
-	}
-
 }
 

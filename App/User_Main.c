@@ -21,12 +21,5 @@ void User_Main(void)
 
     while (1) {
         EnvCar_App_Task();
-
-        if (HAL_GetTick() - ultra_test_tick >= 50U) {
-            ultra_test_tick = HAL_GetTick();
-            Ultrasonic_Test_PrintBoth();
-        }
-
-        HAL_Delay(50);
     }
 }
