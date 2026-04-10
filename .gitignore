@@ -2,3 +2,7 @@
 *.o
 *.d
 /Debug
+/.metadata
+/.vscode
+/.cursor
+/.settings
