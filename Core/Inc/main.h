@@ -35,6 +35,7 @@ extern "C" {
 #include <stdlib.h>
 #include <stdio.h>
 #include "Driver_Timer.h"
+#include "platform_log.h"
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
