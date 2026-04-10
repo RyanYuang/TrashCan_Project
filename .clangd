@@ -1,4 +1,9 @@
 CompileFlags:
+  Remove:
+    - -mcpu=*
+    - -mthumb
+    - -mfpu=*
+    - -mfloat-abi=*
   Add:
     - -x
     - c
@@ -6,30 +11,29 @@ CompileFlags:
     - -DUSE_HAL_DRIVER
     - -DSTM32F103xE
     - -DDEBUG
-    - -IApp
-    - -ICore/Inc
-    - -ICore/Src
-    - -IDevice
-    - -IDevice/AHT30
-    - -IDevice/Beep
-    - -IDevice/GY302
-    - -IDevice/JC278A
-    - -IDevice/MQ-2
-    - -IDevice/OLED
-    - -IDevice/RGB
-    - -IDevice/TB6612
-    - -IDriver
-    - -IDriver/Driver_Timer
-    - -IPlatform
-    - -IProjects
-    - -ISystem
-    - -ICompileFiles
-    - -IDrivers/STM32F1xx_HAL_Driver/Inc
-    - -IDrivers/STM32F1xx_HAL_Driver/Inc/Legacy
-    - -IDrivers/CMSIS/Device/ST/STM32F1xx/Include
-    - -IDrivers/CMSIS/Include
-    - -mcpu=cortex-m3
-    - -mthumb
+    - --target=arm-none-eabi
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/App
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Core/Inc
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Core/Src
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Device
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Device/AHT30
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Device/Beep
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Device/GY302
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Device/JC278A
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Device/MQ-2
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Device/OLED
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Device/RGB
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Device/TB6612
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Driver
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Driver/Driver_Timer
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Platform
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Projects
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/System
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/CompileFiles
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Drivers/STM32F1xx_HAL_Driver/Inc
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Drivers/STM32F1xx_HAL_Driver/Inc/Legacy
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Drivers/CMSIS/Device/ST/STM32F1xx/Include
+    - -ID:/Coding/Workspace/MCU/STM32/TrashCan_Project/Drivers/CMSIS/Include
 
 Diagnostics:
   UnusedIncludes: None

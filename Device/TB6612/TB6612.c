@@ -6,19 +6,6 @@
  */
 void TB6612_Init(void)
 {
-//    // 初始化GPIO引脚
-//    GPIO_InitTypeDef GPIO_InitStruct = {0};
-//
-//    // 使能GPIOA时钟
-//    __HAL_RCC_GPIOA_CLK_ENABLE();
-//
-//    // 配置AIN1, AIN2, BIN1, BIN2引脚
-//    GPIO_InitStruct.Pin = TB6612_AIN1_GPIO | TB6612_AIN2_GPIO |
-//                          TB6612_BIN1_GPIO | TB6612_BIN2_GPIO;
-//    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;  // 推挽输出
-//    GPIO_InitStruct.Pull = GPIO_NOPULL;
-//    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-//    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
     
     // 初始化所有引脚为低电平
     HAL_GPIO_WritePin(TB6612_AIN1_PORT, TB6612_AIN1_GPIO, GPIO_PIN_RESET);

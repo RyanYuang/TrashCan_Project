@@ -1,13 +1,14 @@
 /**
  ******************************************************************************
- * @file           : EnvCar_App.c
+ * @file           : GasCar_App.c
  * @brief          : 气体泄露巡检小车应用层实现
  * @author         : AI Assistant
  * @date           : 2026-02-20
  ******************************************************************************
  */
 
-#include "EnvCar_App.h"
+#include "GasCar_App.h"
+#include "TB6612.h"
 #include "stdio.h"
 
 /* ==================== 全局变量定义 ==================== */
@@ -70,18 +71,6 @@ int EnvCar_App_Init(void)
     Green_TurnOff();
     Blue_TurnOff();
     
-    // 初始化OLED显示
-    // TODO: 缺少OLED引脚和地址配置信息，需要完善Device Create
-    // Pin_Struct oled_sda = {GPIOB, GPIO_PIN_XX};
-    // Pin_Struct oled_scl = {GPIOB, GPIO_PIN_XX};
-    // OLED_Device_Create(&s_oled_handle, &oled_sda, &oled_scl, 0x78);
-    // OLED_Init(&s_oled_handle);
-    // OLED_Clear(&s_oled_handle);
-    
-    // 初始化无线通讯模块
-    // TODO: 缺少JC278A初始化接口调用
-    // JC278A_Device_Create(&s_wireless_handle, &huart1);
-    // JC278A_Init(&s_wireless_handle);
     
     // 初始化系统状态
     g_System_Status.current_state = ENVCAR_STATE_IDLE;
