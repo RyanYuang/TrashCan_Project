@@ -13,6 +13,7 @@
 #include "JC278A/JC278A.h"
 
 /* 其他外设 */
+#include "line_track.h"
 #include "ultrasonic.h"
 #include "beep.h"
 #include "rgb.h"

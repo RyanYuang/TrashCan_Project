@@ -10,7 +10,6 @@
 #include "GasCar_App.h"
 #include "MQ-2.h"
 #include <stdio.h>
-#include "usbd_cdc_if.h"
 
 /* ==================== 全局变量定义 ==================== */
 
@@ -200,12 +199,20 @@ void EnvCar_App_Task(void)
  */
 void EnvCar_Sensor_Update(void)
 {
-    // TODO: 读取红外循迹传感器状态
-    // 需要接口：读取GPIO状态或专用循迹传感器接口
-    // g_Sensor_Data.ir_left = IR_Read_Left();
-    // g_Sensor_Data.ir_center = IR_Read_Center();
-    // g_Sensor_Data.ir_right = IR_Read_Right();
-    
+    LineTrack_ApplyToLogic(&g_Sensor_Data.ir_left, &g_Sensor_Data.ir_center, &g_Sensor_Data.ir_right);
+
+    {
+        static uint32_t s_ir_log_tick;
+        if ((HAL_GetTick() - s_ir_log_tick) >= 10U) {
+            s_ir_log_tick = HAL_GetTick();
+            printf("IR raw=0x%02X LCR=%u%u%u\r\n",
+                   (unsigned)LineTrack_ReadRaw5(),
+                   (unsigned)g_Sensor_Data.ir_left,
+                   (unsigned)g_Sensor_Data.ir_center,
+                   (unsigned)g_Sensor_Data.ir_right);
+        }
+    }
+
     // 读取超声波距离
     // TODO: 缺少获取超声波距离数据的接口
     // 当前ultrasonic.h只有触发函数，没有读取距离的接口
@@ -220,12 +227,12 @@ void EnvCar_Sensor_Update(void)
     }
     {
         static uint32_t s_mq2_log_tick;
-        if ((HAL_GetTick() - s_mq2_log_tick) >= 10U) {
-            s_mq2_log_tick = HAL_GetTick();
-            printf("MQ2 ADC=%lu PPM=%.2f\r\n",
-                   (unsigned long)g_Sensor_Data.gas_adc_value,
-                   (double)g_Sensor_Data.gas_concentration_ppm);
-        }
+//        if ((HAL_GetTick() - s_mq2_log_tick) >= 10U) {
+//            s_mq2_log_tick = HAL_GetTick();
+//            printf("MQ2 ADC=%lu PPM=%.2f\r\n",
+//                   (unsigned long)g_Sensor_Data.gas_adc_value,
+//                   (double)g_Sensor_Data.gas_concentration_ppm);
+//        }
     }
 
     // 读取环境数据（可选）
@@ -239,42 +246,25 @@ void EnvCar_Sensor_Update(void)
  */
 int EnvCar_Tracking_Control(void)
 {
-    // TODO: 红外循迹传感器接口缺失，无法实现
-    // 以下为逻辑框架（占位）
-    
-    /*
     int16_t left_speed = g_EnvCar_Config.tracking_speed_base;
     int16_t right_speed = g_EnvCar_Config.tracking_speed_base;
-    
-    // 三路循迹传感器逻辑（黑线检测）
-    // 0: 白色（无黑线），1: 黑色（检测到黑线）
-    
-    if (g_Sensor_Data.ir_center == 1) {
-        // 中间检测到黑线 -> 直行
+
+    /* 三路逻辑由五路 Gay1|Gay2 / Gay3 / Gay4|Gay5 合成，见 LineTrack_ApplyToLogic */
+    if (g_Sensor_Data.ir_center) {
         left_speed = g_EnvCar_Config.tracking_speed_base;
         right_speed = g_EnvCar_Config.tracking_speed_base;
-    } 
-    else if (g_Sensor_Data.ir_left == 1 && g_Sensor_Data.ir_center == 0) {
-        // 左侧检测到黑线 -> 左转
-        left_speed = g_EnvCar_Config.tracking_speed_base / 2;
+    } else if (g_Sensor_Data.ir_left && !g_Sensor_Data.ir_center) {
+        left_speed = (int16_t)(g_EnvCar_Config.tracking_speed_base / 2);
         right_speed = g_EnvCar_Config.tracking_speed_base;
-    } 
-    else if (g_Sensor_Data.ir_right == 1 && g_Sensor_Data.ir_center == 0) {
-        // 右侧检测到黑线 -> 右转
+    } else if (g_Sensor_Data.ir_right && !g_Sensor_Data.ir_center) {
         left_speed = g_EnvCar_Config.tracking_speed_base;
-        right_speed = g_EnvCar_Config.tracking_speed_base / 2;
-    } 
-    else if (g_Sensor_Data.ir_left == 0 && g_Sensor_Data.ir_center == 0 && g_Sensor_Data.ir_right == 0) {
-        // 全部未检测到黑线 -> 脱线，停车
+        right_speed = (int16_t)(g_EnvCar_Config.tracking_speed_base / 2);
+    } else if (!g_Sensor_Data.ir_left && !g_Sensor_Data.ir_center && !g_Sensor_Data.ir_right) {
         TB6612_Stop();
         return -1;
     }
-    
-    TB6612_SetSpeed(left_speed, right_speed);
-    return 0;
-    */
-    
-    // 当前缺失接口，暂时返回成功
+
+    TB6612_SetSpeed((int)left_speed, (int)right_speed);
     return 0;
 }
 
