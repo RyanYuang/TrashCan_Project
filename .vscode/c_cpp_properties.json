@@ -5,27 +5,13 @@
       "includePath": [
         "${workspaceFolder}/**"
       ],
-      "defines": [
-        "USE_HAL_DRIVER",
-        "STM32F103xE",
-        "DEBUG"
-      ],
       "compilerPath": "gcc",
       "cStandard": "${default}",
       "cppStandard": "${default}",
       "intelliSenseMode": "windows-gcc-x64",
-      "browse": {
-        "path": [
-          "${workspaceFolder}/App",
-          "${workspaceFolder}/Core",
-          "${workspaceFolder}/Device",
-          "${workspaceFolder}/Driver",
-          "${workspaceFolder}/Platform",
-          "${workspaceFolder}/System",
-          "${workspaceFolder}/Drivers"
-        ],
-        "limitSymbolsToIncludedHeaders": false
-      }
+      "compilerArgs": [
+        ""
+      ]
     }
   ],
   "version": 4
