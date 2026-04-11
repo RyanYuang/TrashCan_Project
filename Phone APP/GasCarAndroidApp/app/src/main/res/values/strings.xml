@@ -1,3 +1,16 @@
 <resources>
-    <string name="app_name">My Application</string>
+    <string name="app_name">气检小车</string>
+    <string name="screen_dashboard_title">控制台</string>
+    <string name="section_bluetooth">蓝牙连接</string>
+    <string name="section_display">实时状态</string>
+    <string name="section_control">控制</string>
+    <string name="section_raw">原始数据</string>
+    <string name="action_refresh_paired">刷新设备</string>
+    <string name="action_disconnect">断开</string>
+    <string name="status_prefix">状态</string>
+    <string name="device_unknown">未知设备</string>
+    <string name="content_desc_forward">前进</string>
+    <string name="content_desc_back">后退</string>
+    <string name="content_desc_left">左转</string>
+    <string name="content_desc_right">右转</string>
 </resources>
