@@ -22,7 +22,6 @@
 #include "dma.h"
 #include "tim.h"
 #include "usart.h"
-#include "usb_device.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -101,7 +100,6 @@ int main(void)
   MX_TIM8_Init();
   MX_TIM4_Init();
   MX_TIM6_Init();
-  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
   PlatformLog_Init();
   User_Main();
@@ -157,9 +155,8 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC|RCC_PERIPHCLK_USB;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
   PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV4;
-  PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLL;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();

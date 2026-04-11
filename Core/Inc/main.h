@@ -73,6 +73,16 @@ void Error_Handler(void);
 #define Trig2_GPIO_Port GPIOC
 #define Trig1_Pin GPIO_PIN_9
 #define Trig1_GPIO_Port GPIOC
+#define Gay1_Pin GPIO_PIN_8
+#define Gay1_GPIO_Port GPIOA
+#define Gay2_Pin GPIO_PIN_11
+#define Gay2_GPIO_Port GPIOA
+#define Gay3_Pin GPIO_PIN_12
+#define Gay3_GPIO_Port GPIOA
+#define Gay4_Pin GPIO_PIN_15
+#define Gay4_GPIO_Port GPIOA
+#define Gay5_Pin GPIO_PIN_10
+#define Gay5_GPIO_Port GPIOC
 
 /* USER CODE BEGIN Private defines */
 
