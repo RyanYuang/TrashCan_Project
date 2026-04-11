@@ -8,7 +8,8 @@
  */
 
 #include "GasCar_App.h"
-#include "stdio.h"
+#include "MQ-2.h"
+#include <stdio.h>
 #include "usbd_cdc_if.h"
 
 /* ==================== 全局变量定义 ==================== */
@@ -211,11 +212,22 @@ void EnvCar_Sensor_Update(void)
     // g_Sensor_Data.ultrasonic1_distance_cm = Ultrasonic_Get_Distance_1();
     // g_Sensor_Data.ultrasonic2_distance_cm = Ultrasonic_Get_Distance_2();
     
-    // 读取气体浓度
-    // TODO: 缺少读取MQ-2 ADC数据的接口
-    // g_Sensor_Data.gas_adc_value = MQ2_Get_ADC_Value();
-    // g_Sensor_Data.gas_concentration_ppm = MQ2ConvertPPM(g_Sensor_Data.gas_adc_value);
-    
+    /* MQ-2：ADC 原始值 + 粗略 PPM（R0 为经验常数，标定后更准） */
+    {
+        uint32_t raw = MQ2_ReadRaw();
+        g_Sensor_Data.gas_adc_value = raw;
+        g_Sensor_Data.gas_concentration_ppm = MQ2ConvertPPM(raw);
+    }
+    {
+        static uint32_t s_mq2_log_tick;
+        if ((HAL_GetTick() - s_mq2_log_tick) >= 10U) {
+            s_mq2_log_tick = HAL_GetTick();
+            printf("MQ2 ADC=%lu PPM=%.2f\r\n",
+                   (unsigned long)g_Sensor_Data.gas_adc_value,
+                   (double)g_Sensor_Data.gas_concentration_ppm);
+        }
+    }
+
     // 读取环境数据（可选）
     // TODO: 缺少AHT30温湿度传感器接口
     // g_Sensor_Data.temperature = AHT30_Get_Temperature();
