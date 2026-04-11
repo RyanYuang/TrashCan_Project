@@ -4,6 +4,7 @@
  * @brief   平台统一日志输出 API
  * @note    配置见 platform_log_config.h。初始化外设后调用 PlatformLog_Init()（CDC 建议在 USB 初始化之后）。
  *          宏均以 PLATFORM_LOG_ 为前缀；LOG_WRITE / LOG_* 为兼容别名。
+ *          传感器测试流水由 LOG_TEST 管理（见 PLATFORM_LOG_TEST_ENABLE）。
  ******************************************************************************
  */
 
@@ -67,6 +68,19 @@ void PlatformLog_Write(const uint8_t *data, size_t len);
 #define LOG_DEBUG(msg)                      ((void)0)
 #define LOG_WRITE(ptr, len)                 ((void)0)
 
+#endif /* PLATFORM_LOG_ENABLE */
+
+/**
+ * 传感器 / 台架测试日志（可变参数，内部走 printf，若开启 PLATFORM_LOG_HOOK_STDIO 则经 PlatformLog 输出）
+ * 由 platform_log_config.h 中 PLATFORM_LOG_TEST_ENABLE 总控；与 PLATFORM_LOG_ENABLE 同时为 1 才生效。
+ */
+#if PLATFORM_LOG_ENABLE && PLATFORM_LOG_TEST_ENABLE
+#include <stdio.h>
+#define LOG_TEST(fmt, ...)           printf("[LOG_TEST] " fmt, ##__VA_ARGS__)
+#define PLATFORM_LOG_TEST(fmt, ...)  LOG_TEST(fmt, ##__VA_ARGS__)
+#else
+#define LOG_TEST(fmt, ...)           ((void)0)
+#define PLATFORM_LOG_TEST(fmt, ...)  ((void)0)
 #endif
 
 #ifdef __cplusplus

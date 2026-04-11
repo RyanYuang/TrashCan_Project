@@ -2,25 +2,40 @@
  ******************************************************************************
  * @file    platform_log_config.h
  * @brief   平台日志输出配置（选择 USART1 / USART2 / USB CDC，及 USART 是否用 DMA）
- * @note    修改本文件即可切换日志接口，无需改业务代码。
+ * @note    输出后端、DMA 等在此配置；总开关默认跟随 Platform/Config/platform_config.h 的 PLATFORM_DEBUG_LOG_ENABLE。
  ******************************************************************************
  */
 
 #ifndef __PLATFORM_LOG_CONFIG_H__
 #define __PLATFORM_LOG_CONFIG_H__
 
+#include "../Config/platform_config.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /* ========================= 总开关 ========================= */
+/**
+ * 默认跟随 platform_config.h 中的 PLATFORM_DEBUG_LOG_ENABLE。
+ * 若需单独覆盖，可在包含本头文件之前 #define PLATFORM_LOG_ENABLE。
+ */
 #ifndef PLATFORM_LOG_ENABLE
-#define PLATFORM_LOG_ENABLE        1
+#define PLATFORM_LOG_ENABLE        PLATFORM_DEBUG_LOG_ENABLE
 #endif
 
 /** 1: 提供强符号 __io_putchar，将 printf/puts 等导向 PlatformLog */
 #ifndef PLATFORM_LOG_HOOK_STDIO
 #define PLATFORM_LOG_HOOK_STDIO    1
+#endif
+
+/**
+ * 1: 启用 LOG_TEST / PLATFORM_LOG_TEST（传感器台架、原始数据等 printf 调试输出）
+ * 0: 编译期剔除
+ * 默认跟随 PLATFORM_DEBUG_LOG_ENABLE；可在包含本头文件之前单独覆盖。
+ */
+#ifndef PLATFORM_LOG_TEST_ENABLE
+#define PLATFORM_LOG_TEST_ENABLE   PLATFORM_DEBUG_LOG_ENABLE
 #endif
 
 /* ========================= 输出后端 ========================= */

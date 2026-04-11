@@ -9,6 +9,7 @@
 
 #include "GasCar_App.h"
 #include "MQ-2.h"
+#include "platform_log.h"
 #include <stdio.h>
 
 /* ==================== 全局变量定义 ==================== */
@@ -203,13 +204,13 @@ void EnvCar_Sensor_Update(void)
 
     {
         static uint32_t s_ir_log_tick;
-        if ((HAL_GetTick() - s_ir_log_tick) >= 10U) {
+        if ((HAL_GetTick() - s_ir_log_tick) >= 500U) {
             s_ir_log_tick = HAL_GetTick();
-            printf("IR raw=0x%02X LCR=%u%u%u\r\n",
-                   (unsigned)LineTrack_ReadRaw5(),
-                   (unsigned)g_Sensor_Data.ir_left,
-                   (unsigned)g_Sensor_Data.ir_center,
-                   (unsigned)g_Sensor_Data.ir_right);
+            LOG_TEST("IR raw=0x%02X LCR=%u%u%u\r\n",
+                     (unsigned)LineTrack_ReadRaw5(),
+                     (unsigned)g_Sensor_Data.ir_left,
+                     (unsigned)g_Sensor_Data.ir_center,
+                     (unsigned)g_Sensor_Data.ir_right);
         }
     }
 
@@ -227,12 +228,12 @@ void EnvCar_Sensor_Update(void)
     }
     {
         static uint32_t s_mq2_log_tick;
-//        if ((HAL_GetTick() - s_mq2_log_tick) >= 10U) {
-//            s_mq2_log_tick = HAL_GetTick();
-//            printf("MQ2 ADC=%lu PPM=%.2f\r\n",
-//                   (unsigned long)g_Sensor_Data.gas_adc_value,
-//                   (double)g_Sensor_Data.gas_concentration_ppm);
-//        }
+        if ((HAL_GetTick() - s_mq2_log_tick) >= 1000U) {
+            s_mq2_log_tick = HAL_GetTick();
+            LOG_TEST("MQ2 ADC=%lu PPM=%.2f\r\n",
+                     (unsigned long)g_Sensor_Data.gas_adc_value,
+                     (double)g_Sensor_Data.gas_concentration_ppm);
+        }
     }
 
     // 读取环境数据（可选）

@@ -30,13 +30,20 @@ extern "C" {
 #define PLATFORM_UART_BAUDRATE_DEFAULT  115200
 
 /* ========================= 调试配置 ========================= */
-// 调试打印使能
+/** 框架/业务条件编译调试（与 UART 协议等校验相关，见文件末尾 #warning 条件） */
 #define PLATFORM_DEBUG_ENABLE       1
+
+/**
+ * 调试 Log 总开关（在本文件改 0/1 即可，无需改 platform_log_config.h）
+ * - 1：PlatformLog、printf 重定向、LOG_TEST 等默认开启
+ * - 0：上述默认关闭（若某处需在包含日志头前强制打开，可再 #define PLATFORM_LOG_ENABLE 1）
+ */
+#define PLATFORM_DEBUG_LOG_ENABLE   1
 
 // 用户打印使能
 #define PLATFORM_USER_PRINT_ENABLE  1
 
-// 调试串口选择（默认UART1，与协议等旧代码共用句柄；printf 重定向见 Platform/Log/platform_log_config.h）
+// 调试串口选择（默认 UART1，与协议等旧代码共用句柄）
 #define PLATFORM_DEBUG_UART         huart1
 
 /* ========================= 功能模块使能 ========================= */
