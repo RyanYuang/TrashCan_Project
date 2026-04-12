@@ -13,4 +13,13 @@
     <string name="content_desc_back">后退</string>
     <string name="content_desc_left">左转</string>
     <string name="content_desc_right">右转</string>
+    <string name="section_run_mode">运行模式</string>
+    <string name="action_mode_manual">手动模式（@9）</string>
+    <string name="action_mode_auto">自动循迹（@10）</string>
+    <string name="label_threshold_feedback">阈值应答</string>
+    <string name="label_obstacle_trig">避障触发距离 trig_cm（cm）</string>
+    <string name="label_obstacle_safe">恢复距离 safe_cm（cm）</string>
+    <string name="label_gas_low_enable">气体下限报警</string>
+    <string name="label_gas_low_ppm">浓度下限（ppm）</string>
+    <string name="label_gas_high_ppm">浓度上限（ppm）</string>
 </resources>

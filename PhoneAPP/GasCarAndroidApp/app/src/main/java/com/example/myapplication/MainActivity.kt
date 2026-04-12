@@ -20,10 +20,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -51,13 +49,13 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -70,13 +68,19 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.example.myapplication.spp.EnvCarSppProtocol
+import kotlin.math.max
+import kotlin.math.min
 import com.example.myapplication.ui.theme.AlarmDanger
 import com.example.myapplication.ui.theme.AlarmSafe
 import com.example.myapplication.ui.theme.MyApplicationTheme
+import java.util.Locale
 
+/** 主界面 Activity：申请蓝牙权限、挂载 Compose 仪表盘并预加载已配对设备。 */
 class MainActivity : ComponentActivity() {
     private val bluetoothViewModel: BluetoothViewModel by viewModels()
 
+    /** 初始化主题与 [MainScreen]，在 Android 12+ 上请求蓝牙扫描/连接权限。 */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -111,6 +115,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** 顶部标题栏，展示仪表盘标题。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DashboardTopBar() {
@@ -128,12 +133,14 @@ private fun DashboardTopBar() {
     )
 }
 
+/** 仪表盘主列表：蓝牙、数据显示、控制与原始报文区块。 */
 @Composable
 fun MainScreen(
     viewModel: BluetoothViewModel,
     modifier: Modifier = Modifier
 ) {
-    val receivedData by viewModel.receivedData.collectAsState()
+    val sts by viewModel.stsUplink.collectAsState()
+    val rawLog by viewModel.rawReceivedLog.collectAsState()
 
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
@@ -144,18 +151,19 @@ fun MainScreen(
             BluetoothConnectionPanel(viewModel)
         }
         item {
-            DisplayPanel(receivedData)
+            DisplayPanel(sts)
         }
         item {
             ControlPanel(viewModel)
         }
         item {
-            RawDataPanel(receivedData)
+            RawDataPanel(rawLog)
         }
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
 }
 
+/** 蓝牙卡片：刷新/断开、连接状态芯片、已配对设备列表与点击连接。 */
 @Composable
 fun BluetoothConnectionPanel(viewModel: BluetoothViewModel) {
     val pairedDevices by viewModel.pairedDevices.collectAsState()
@@ -241,6 +249,7 @@ fun BluetoothConnectionPanel(viewModel: BluetoothViewModel) {
     }
 }
 
+/** 只读状态芯片：根据 [status] 文案判断是否已连接并切换图标。 */
 @Composable
 private fun ConnectionStatusChip(status: String) {
     val connected = status.contains("已连接", ignoreCase = true) ||
@@ -269,26 +278,20 @@ private fun ConnectionStatusChip(status: String) {
     )
 }
 
+/**
+ * 展示最近一次解析成功的 `$STS:` 上行帧（由 [EnvCarSppProtocol] 解析）。
+ */
 @Composable
-fun DisplayPanel(receivedData: String) {
-    var gasData by remember { mutableStateOf("—") }
-    var obstacleData by remember { mutableStateOf("—") }
-    var alarmStatus by remember { mutableStateOf("—") }
-    var carStatus by remember { mutableStateOf("—") }
+fun DisplayPanel(sts: EnvCarSppProtocol.StsUplink?) {
+    val gasData = sts?.let { String.format(Locale.US, "%.2f ppm", it.gasPpm) } ?: "—"
+    val obstacleData = sts?.let {
+        if (it.obsFlag == EnvCarSppProtocol.ObsFlag.NONE) "无障碍"
+        else "${it.obsCm} cm"
+    } ?: "—"
+    val alarmStatus = sts?.let { EnvCarSppProtocol.alarmLabelZh(it.alarm) } ?: "—"
+    val carStatus = sts?.let { EnvCarSppProtocol.carStateLabelZh(it.carState) } ?: "—"
 
-    LaunchedEffect(receivedData) {
-        if (receivedData.startsWith("@") && receivedData.contains(",")) {
-            val parts = receivedData.removePrefix("@").trim().split(",")
-            if (parts.size == 4) {
-                gasData = parts[0]
-                obstacleData = parts[1]
-                alarmStatus = if (parts[2] == "1") "警报" else "正常"
-                carStatus = if (parts[3] == "1") "巡检中" else "已停止"
-            }
-        }
-    }
-
-    val alarmOk = alarmStatus == "正常" || alarmStatus == "—"
+    val alarmOk = sts == null || sts.alarm == EnvCarSppProtocol.Alarm.NONE
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -344,6 +347,7 @@ fun DisplayPanel(receivedData: String) {
     }
 }
 
+/** 单行指标：左侧标签 + 右侧数值与颜色。 */
 @Composable
 private fun MetricTile(
     label: String,
@@ -375,11 +379,44 @@ private fun MetricTile(
     }
 }
 
+/** 方向、停止 `@0`；`@9`/`@10` 运行模式；`@5`～`@8` 速度；`#O...,G...` 阈值及 MCU 应答提示。 */
 @Composable
 fun ControlPanel(viewModel: BluetoothViewModel) {
-    var carSpeed by remember { mutableFloatStateOf(50f) }
-    var obstacleDistance by remember { mutableFloatStateOf(100f) }
-    var gasThreshold by remember { mutableFloatStateOf(500f) }
+    val thresholdFb by viewModel.thresholdFeedback.collectAsState()
+
+    var carSpeed by remember { mutableStateOf(50f) }
+    var obstacleDistance by remember { mutableStateOf(100f) }
+    var safeDistance by remember { mutableStateOf(110f) }
+    var gasHigh by remember { mutableStateOf(500f) }
+    var useGasLowAlarm by remember { mutableStateOf(false) }
+    var gasLow by remember { mutableStateOf(10f) }
+
+    val speedCode = EnvCarSppProtocol.speedPercentToCommandCode(carSpeed.toInt())
+    val speedLabel = EnvCarSppProtocol.speedCommandCodeToPercentLabel(speedCode)
+
+    LaunchedEffect(obstacleDistance) {
+        val minSafe = obstacleDistance + 1f
+        if (safeDistance < minSafe) {
+            safeDistance = (obstacleDistance + 10f).coerceIn(minSafe, 500f)
+        }
+    }
+    LaunchedEffect(gasHigh, useGasLowAlarm) {
+        if (!useGasLowAlarm) return@LaunchedEffect
+        val maxLow = (gasHigh - 0.02f).coerceAtLeast(0.02f)
+        if (gasLow > maxLow) gasLow = max(0.01f, maxLow)
+    }
+
+    val pushThreshold: () -> Unit = {
+        val trig = obstacleDistance.toInt().coerceIn(1, 499)
+        val safe = safeDistance.toInt().coerceIn(trig + 1, 500)
+        val high = gasHigh.coerceAtLeast(1f)
+        val low = if (useGasLowAlarm) {
+            min(max(gasLow, 0.01f), high - 0.01f)
+        } else {
+            0f
+        }
+        viewModel.sendThresholdConfig(trig, safe, low, high)
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -414,7 +451,7 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilledIconButton(
-                    onClick = { viewModel.sendData("forward") },
+                    onClick = { viewModel.sendControl(EnvCarSppProtocol.Cmd.FORWARD) },
                     modifier = Modifier.size(56.dp)
                 ) {
                     Icon(
@@ -427,7 +464,7 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     FilledIconButton(
-                        onClick = { viewModel.sendData("left") },
+                        onClick = { viewModel.sendControl(EnvCarSppProtocol.Cmd.TURN_LEFT) },
                         modifier = Modifier.size(56.dp)
                     ) {
                         Icon(
@@ -436,7 +473,7 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
                         )
                     }
                     FilledIconButton(
-                        onClick = { viewModel.sendData("right") },
+                        onClick = { viewModel.sendControl(EnvCarSppProtocol.Cmd.TURN_RIGHT) },
                         modifier = Modifier.size(56.dp)
                     ) {
                         Icon(
@@ -446,7 +483,7 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
                     }
                 }
                 FilledIconButton(
-                    onClick = { viewModel.sendData("backward") },
+                    onClick = { viewModel.sendControl(EnvCarSppProtocol.Cmd.BACKWARD) },
                     modifier = Modifier.size(56.dp)
                 ) {
                     Icon(
@@ -455,49 +492,130 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
                     )
                 }
             }
+            Spacer(modifier = Modifier.height(12.dp))
+            FilledTonalButton(
+                onClick = { viewModel.sendControl(EnvCarSppProtocol.Cmd.STOP) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("停止（@0）")
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = stringResource(R.string.section_run_mode),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = { viewModel.sendControl(EnvCarSppProtocol.Cmd.MODE_MANUAL) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(stringResource(R.string.action_mode_manual), maxLines = 2)
+                }
+                FilledTonalButton(
+                    onClick = { viewModel.sendControl(EnvCarSppProtocol.Cmd.MODE_AUTO_TRACK) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(stringResource(R.string.action_mode_auto), maxLines = 2)
+                }
+            }
             Spacer(modifier = Modifier.height(16.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "小车速度：${carSpeed.toInt()}",
+                text = "小车速度：${carSpeed.toInt()}% → MCU 档位 $speedLabel（@${speedCode}）",
                 style = MaterialTheme.typography.bodyLarge
             )
             Slider(
                 value = carSpeed,
-                onValueChange = {
-                    carSpeed = it
-                    viewModel.sendData("speed:${it.toInt()}")
-                },
+                onValueChange = { carSpeed = it },
+                onValueChangeFinished = { viewModel.sendSpeedPercent(carSpeed.toInt()) },
                 valueRange = 0f..100f
             )
             Text(
-                text = "障碍物检测距离：${obstacleDistance.toInt()} cm",
+                text = "${stringResource(R.string.label_obstacle_trig)}：${obstacleDistance.toInt()}",
                 style = MaterialTheme.typography.bodyLarge
             )
             Slider(
                 value = obstacleDistance,
-                onValueChange = {
-                    obstacleDistance = it
-                    viewModel.sendData("obstacle:${it.toInt()}")
-                },
-                valueRange = 0f..200f
+                onValueChange = { obstacleDistance = it },
+                onValueChangeFinished = pushThreshold,
+                valueRange = 5f..200f
             )
             Text(
-                text = "气体浓度阈值：${gasThreshold.toInt()} ppm",
+                text = "${stringResource(R.string.label_obstacle_safe)}：${safeDistance.toInt()}",
                 style = MaterialTheme.typography.bodyLarge
             )
             Slider(
-                value = gasThreshold,
-                onValueChange = {
-                    gasThreshold = it
-                    viewModel.sendData("gas:${it.toInt()}")
-                },
-                valueRange = 0f..1000f
+                value = safeDistance,
+                onValueChange = { safeDistance = it },
+                onValueChangeFinished = pushThreshold,
+                valueRange = (obstacleDistance + 1f)..500f
             )
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 8.dp),
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.label_gas_low_enable),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+                Switch(
+                    checked = useGasLowAlarm,
+                    onCheckedChange = { useGasLowAlarm = it }
+                )
+            }
+            if (useGasLowAlarm) {
+                Text(
+                    text = "${stringResource(R.string.label_gas_low_ppm)}：${
+                        String.format(Locale.US, "%.2f", gasLow)
+                    }",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Slider(
+                    value = gasLow,
+                    onValueChange = { gasLow = it },
+                    onValueChangeFinished = pushThreshold,
+                    valueRange = 0.01f..min(gasHigh - 0.02f, 499f).coerceAtLeast(0.02f)
+                )
+            }
+            Text(
+                text = "${stringResource(R.string.label_gas_high_ppm)}：${gasHigh.toInt()}",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Slider(
+                value = gasHigh,
+                onValueChange = { gasHigh = it },
+                onValueChangeFinished = pushThreshold,
+                valueRange = 1f..1000f
+            )
+            thresholdFb?.let { msg ->
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "${stringResource(R.string.label_threshold_feedback)}：$msg",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (msg.contains("已写入") || msg.contains("#OK")) {
+                        AlarmSafe
+                    } else {
+                        AlarmDanger
+                    }
+                )
+            }
         }
     }
 }
 
+/** 等宽展示累积原始接收文本（含 `$STS:`、`ECHO:` 等），不经业务解析。 */
 @Composable
 fun RawDataPanel(receivedData: String) {
     val hScroll = rememberScrollState()
@@ -533,6 +651,7 @@ fun RawDataPanel(receivedData: String) {
     }
 }
 
+/** Compose 预览用：在主题内展示 [MainScreen]。 */
 @Preview(showBackground = true)
 @Composable
 fun DefaultPreview() {
