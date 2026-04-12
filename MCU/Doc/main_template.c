@@ -86,8 +86,15 @@ if (HAL_GetTick() - lastSendTime >= 500) {  // 每500ms发送一次
     float co = 0.5;        // Read_MQ2_CO();
     float light = 450.0;   // Read_GY302_Light();
     
-    // 发送到上位机（格式：@temp,hum,co,light\r\n）
-    UART_Protocol_SendSensorData(&huart1, temp, hum, co, light);
+    // 下位机状态帧（气体 / 障碍 / 警报 / 小车状态），前缀 $STS:
+    UART_StatusUplink_t st = {
+        .gas_ppm = co,
+        .obs_flag = UART_OBS_NONE,
+        .obs_cm = 0,
+        .alarm = UART_ALM_NONE,
+        .car_state = 1,
+    };
+    UART_Protocol_SendStatusFrame(&huart1, &st);
     
     // 可选：检查是否超过阈值
     SensorData_t data = {temp, hum, co, light};
@@ -144,6 +151,12 @@ void OnCommandReceived(ControlCommand_t cmd)
             
         case CMD_SPEED_100:
             g_MotorSpeed = 100;
+            break;
+
+        case CMD_MODE_MANUAL:
+            break;
+
+        case CMD_MODE_AUTO_TRACK:
             break;
             
         default:

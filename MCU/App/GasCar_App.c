@@ -61,6 +61,86 @@ static volatile uint8_t s_usart2_host_reply_pending;
 static volatile uint16_t s_usart2_host_reply_len;
 static char s_usart2_host_reply_buf[256];
 
+/** 两路超声波中取较小有效距离 (cm)，均为 0 时返回 0 */
+static uint16_t EnvCar_MinUltrasonicCm(void)
+{
+    uint16_t d1 = g_Sensor_Data.ultrasonic1_distance_cm;
+    uint16_t d2 = g_Sensor_Data.ultrasonic2_distance_cm;
+    uint16_t m = 0;
+    if (d1 > 0U) {
+        m = d1;
+    }
+    if (d2 > 0U && (m == 0U || d2 < m)) {
+        m = d2;
+    }
+    return m;
+}
+
+/** 周期上报 USART2 状态帧 $STS:...（内部 300ms 节流） */
+static void EnvCar_StatusUplinkOnce(void)
+{
+    static uint32_t s_last_uplink_ms;
+    uint32_t now = HAL_GetTick();
+    if ((now - s_last_uplink_ms) < 300U) {
+        return;
+    }
+    s_last_uplink_ms = now;
+
+    uint16_t min_cm = EnvCar_MinUltrasonicCm();
+    uint8_t obs_flag = UART_OBS_NONE;
+    uint16_t obs_cm = 0;
+    if (g_EnvCar_Config.obstacle_cfg.enable && min_cm > 0U &&
+        min_cm < g_EnvCar_Config.obstacle_cfg.threshold_distance_cm) {
+        obs_flag = UART_OBS_NEAR;
+        obs_cm = min_cm;
+    }
+
+    float ppm = g_Sensor_Data.gas_concentration_ppm;
+    uint8_t gas_risk = 0U;
+    if (g_EnvCar_Config.gas_cfg.enable) {
+        if (ppm > g_EnvCar_Config.gas_cfg.gas_threshold_high_ppm) {
+            gas_risk = 1U;
+        } else if (g_EnvCar_Config.gas_cfg.enable_low_alarm &&
+                   ppm < g_EnvCar_Config.gas_cfg.gas_threshold_low_ppm) {
+            gas_risk = 1U;
+        }
+    }
+
+    uint8_t obs_risk = (obs_flag == UART_OBS_NEAR) ? 1U : 0U;
+    uint8_t alarm;
+    if (obs_risk != 0U && gas_risk != 0U) {
+        alarm = UART_ALM_BOTH;
+    } else if (gas_risk != 0U) {
+        alarm = UART_ALM_GAS;
+    } else if (obs_risk != 0U) {
+        alarm = UART_ALM_OBST;
+    } else {
+        alarm = UART_ALM_NONE;
+    }
+
+    UART_StatusUplink_t st = {
+        .gas_ppm = ppm,
+        .obs_flag = obs_flag,
+        .obs_cm = obs_cm,
+        .alarm = alarm,
+        .car_state = (uint8_t)g_System_Status.current_state,
+    };
+    (void)UART_Protocol_SendStatusFrame(&huart2, &st);
+}
+
+/** 串口 # 阈值帧解析成功后写入 g_EnvCar_Config */
+static void EnvCar_OnProtocolThreshold(const ProtocolEnvLimits_t *lim)
+{
+    if (lim == NULL) {
+        return;
+    }
+    g_EnvCar_Config.obstacle_cfg.threshold_distance_cm = lim->obstacle_trig_cm;
+    g_EnvCar_Config.obstacle_cfg.safe_distance_cm = lim->obstacle_safe_cm;
+    g_EnvCar_Config.gas_cfg.gas_threshold_low_ppm = lim->gas_low_ppm;
+    g_EnvCar_Config.gas_cfg.gas_threshold_high_ppm = lim->gas_high_ppm;
+    g_EnvCar_Config.gas_cfg.enable_low_alarm = (lim->gas_low_ppm > 0.0f);
+}
+
 /**
  * @brief 在中断里登记一帧待回显到上位机（USART2）的文本。
  *
@@ -149,6 +229,24 @@ static int EnvCar_OLED_Init(void)
     return 0;
 }
 
+/**
+ * @brief USART2 @ 指令回调：将模式类指令映射到 g_EnvCar_Config.mode。
+ * @note 在 UART 接收完成中断里触发；仅做轻量状态切换，避免长耗时。
+ */
+static void EnvCar_OnProtocolCommand(ControlCommand_t cmd)
+{
+    switch (cmd) {
+        case CMD_MODE_MANUAL:
+            EnvCar_Set_Mode(ENVCAR_MODE_MANUAL);
+            break;
+        case CMD_MODE_AUTO_TRACK:
+            EnvCar_Set_Mode(ENVCAR_MODE_AUTO);
+            break;
+        default:
+            break;
+    }
+}
+
 /* ==================== 外部API实现 ==================== */
 
 /**
@@ -182,6 +280,8 @@ int EnvCar_App_Init(void)
     s_last_tick = HAL_GetTick();
 
     Protocol_Parser_Init();
+    Protocol_Parser_RegisterThresholdCallback(EnvCar_OnProtocolThreshold);
+    Protocol_Parser_RegisterCommandCallback(EnvCar_OnProtocolCommand);
     if (UART_Protocol_Init(&huart2) != HAL_OK) {
         return -1;
     }
@@ -214,6 +314,7 @@ void EnvCar_App_Task(void)
         g_System_Status.is_alarm_active = true;
         EnvCar_Emergency_Stop();
         EnvCar_Alarm_Control(ALARM_TYPE_GAS_HIGH, true);
+        EnvCar_StatusUplinkOnce();
         return;  // 气体报警时强制停机，不执行后续逻辑
     }
     
@@ -274,6 +375,9 @@ void EnvCar_App_Task(void)
     
     // 6. 无线通讯指令解析
     EnvCar_Wireless_Parse_Command();
+
+    // 7. USART2 周期状态帧（气体 / 障碍 / 警报 / 小车状态）
+    EnvCar_StatusUplinkOnce();
 }
 
 /**

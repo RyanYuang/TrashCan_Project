@@ -18,7 +18,7 @@
 **不在本文档范围（未在 USART2 上启用）**
 
 - `GasCar_App.c` 中 **JC278A 无线模块** 的 `MODE:` / `SPEED:` / `DIST:` / `GAS:` 等示例为 **注释占位**，不是当前 USART2 协议。
-- `UART_Protocol_SendSensorData()` 提供的 **`@温度,湿度,CO,光照\r\n`** 上行格式为库函数能力；**当前业务代码未检索到调用**。若将来与下行 `@指令码` 共用同一路径，需注意语义区分（见第 6 节）。
+- 周期上行 **`$STS:...` 下位机状态帧**（见第 4.3 节），由 `UART_Protocol_SendStatusFrame` 发送，业务在 `EnvCar_App_Task` 中约 **300ms** 调用一次。
 
 ---
 
@@ -53,7 +53,7 @@
 | 字段 | 说明 |
 |------|------|
 | 前缀 | 单字符 `@`（`0x40`） |
-| 指令码 | `@` 之后为十进制整数 **0～8**，前导空格允许；由 `atoi` 解析，**必须为数字开头** |
+| 指令码 | `@` 之后为十进制整数 **0～10**，前导空格允许；由 `atoi` 解析，**必须为数字开头**（双位数 `10` 合法） |
 | 行尾 | `\n`（前可有 `\r`） |
 
 **指令码与枚举 `ControlCommand_t` 对应关系**
@@ -69,6 +69,8 @@
 | 6 | `CMD_SPEED_50` | 速度 50% |
 | 7 | `CMD_SPEED_75` | 速度 75% |
 | 8 | `CMD_SPEED_100` | 速度 100% |
+| 9 | `CMD_MODE_MANUAL` | **手动模式**：`g_EnvCar_Config.mode = ENVCAR_MODE_MANUAL`，由应用层执行（小车等待 `@` 运动/速度指令或其它手动控制） |
+| 10 | `CMD_MODE_AUTO_TRACK` | **自动循迹模式**：`g_EnvCar_Config.mode = ENVCAR_MODE_AUTO`（循迹 + 避障 + 气体监测等自动任务） |
 
 **示例**
 
@@ -76,52 +78,60 @@
 @0\n          ; 停止
 @1\r\n        ; 前进
 @5\r\n        ; 25% 速度
+@9\r\n        ; 切换为手动模式
+@10\r\n       ; 切换为自动循迹模式
 ```
 
 解析成功后会调用已注册的 `Protocol_Parser_RegisterCommandCallback` 回调；若未注册，仅更新内部“最后指令”状态。
 
 **错误行为**
 
-- 首字符不是 `@`、或 `@` 后非数字、或数值不在 0～8：返回 `PARSE_ERROR`，`g_LastCommand` 置为 `CMD_INVALID`。
+- 首字符不是 `@`、或 `@` 后非数字、或数值不在 0～10：返回 `PARSE_ERROR`，`g_LastCommand` 置为 `CMD_INVALID`。
 
 ---
 
-### 3.2 阈值配置帧：`#T...H...G...L...`
+### 3.2 阈值配置帧：`#O...,G...`（避障 + 气体浓度）
+
+仅配置两类参数：**超声波避障距离门限**（触发距离 + 恢复距离）与 **气体浓度允许区间**（下限、上限）。与旧版温湿度/光照长帧 **不兼容**。
 
 | 字段 | 说明 |
 |------|------|
 | 前缀 | `#` |
-| 结构 | 固定分段顺序：`T` 温度 → `H` 湿度 → `G` CO → `L` 光照；每段为两个浮点数，逗号分隔 |
+| 固定格式 | `#O` 段 + `G` 段，中间无空格；数值均为十进制 |
 
-**语法（逻辑格式）**
+**语法**
 
 ```text
-#T<temp_low>,<temp_high>,H<hum_low>,<hum_high>,G<co_warning>,<co_danger>,L<light_low>,<light_high>\n
+#O<trig_cm>,<safe_cm>,G<low_ppm>,<high_ppm>\n
 ```
 
-**`ThresholdConfig_t` 字段含义**（与 `threshold_config.h` 一致）
+| 载荷段 | 类型 | 含义 |
+|--------|------|------|
+| `trig_cm` | 无符号整数 | 障碍物距离 **小于** 该厘米数时，视为过近（触发避障逻辑，对应 `threshold_distance_cm`） |
+| `safe_cm` | 无符号整数 | 障碍物距离 **大于** 该厘米数时，视为可恢复安全行驶（对应 `safe_distance_cm`） |
+| `low_ppm` / `high_ppm` | 浮点 | 气体浓度允许范围（ppm），对应 `gas_threshold_low_ppm` / `gas_threshold_high_ppm` |
 
-| 字段 | 单位 | 说明 |
-|------|------|------|
-| `temp_low` / `temp_high` | °C | 温度下限 / 上限 |
-| `hum_low` / `hum_high` | % | 湿度下限 / 上限 |
-| `co_warning` / `co_danger` | ppm | CO 警告 / 危险阈值 |
-| `light_low` / `light_high` | lux | 光照下限 / 上限 |
+**校验规则（MCU 拒绝时返回 `#ERR:Invalid params`）**
+
+- `0 < trig_cm < safe_cm`，且 `trig_cm`、`safe_cm` 均 **≤ 500**。
+- `low_ppm < high_ppm`（严格小于）。
+- `low_ppm == 0`：应用层将 **关闭** 浓度下限报警（`enable_low_alarm = false`）；仅使用上限时典型写法为 `#O20,30,G0,500`。
 
 **示例**
 
 ```text
-#T-10.0,45.0,H20.0,90.0,G30.0,50.0,L0.0,10000.0\r\n
+#O20,30,G10.0,600.0\r\n
 ```
 
 **MCU 应答（经 USART2 阻塞发送）**
 
 | 结果 | 上行文本（含行尾） |
 |------|-------------------|
-| 解析成功 | `#OK:Config synced\r\n` |
-| 解析失败 | `#ERR:Parse failed\r\n` |
+| 解析成功并已写入应用配置 | `#OK:Config synced\r\n` |
+| 格式不匹配（`sscanf` 未得到 4 个字段） | `#ERR:Parse failed\r\n` |
+| 数值未通过校验 | `#ERR:Invalid params\r\n` |
 
-解析成功时还会调用 `Protocol_Parser_RegisterThresholdCallback` 注册的回调，将新配置下发给应用层。
+解析成功时先调用 `Protocol_Parser_RegisterThresholdCallback` 注册的回调（工程内将写入 `g_EnvCar_Config`），再发送 `#OK:` 行。
 
 ---
 
@@ -149,16 +159,39 @@ ECHO:<原文>\r\n
 
 见 **第 3.2 节** 表中 `#OK:` / `#ERR:` 两条固定字符串。
 
-### 4.3 传感器数据帧（库函数，可选）
+### 4.3 下位机状态帧（周期上行）
 
-函数 `UART_Protocol_SendSensorData()`（`uart_protocol.c`）定义为：
+MCU 经 **`UART_Protocol_SendStatusFrame`** 主动上报（`uart_protocol.c`），建议在 **USART2** 上周期发送（工程中约 **300ms** 一次，带节流）。
+
+**语法**
 
 ```text
-@<温度>,<湿度>,<CO>,<光照>\r\n
+$STS:<gas_ppm>,<obs_flag>,<obs_cm>,<alarm>,<car_state>\r\n
 ```
 
-- 温度、湿度、CO：格式 `%.1f`（一位小数）；光照：`%.0f`（整数）。
-- **当前工程未在业务路径中调用该函数**；若启用，上位机需与 `@0`～`@8` 控制帧区分（见第 6 节）。
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `gas_ppm` | 浮点文本 | 气体浓度 **ppm**，格式 `%.2f` |
+| `obs_flag` | 整数 | **0** = 无障碍（`UART_OBS_NONE`），此时 `obs_cm` 固定为 **0**；**1** = 有障碍（`UART_OBS_NEAR`），表示已小于避障触发距离 |
+| `obs_cm` | 整数 | 有障碍时为**最近障碍物距离 (cm)**；无障碍时为 **0** |
+| `alarm` | 整数 | **0** 无；**1** 仅障碍条件满足；**2** 仅气体条件满足；**3** 障碍与气体条件**同时**满足（`UART_ALM_NONE` / `_OBST` / `_GAS` / `_BOTH`） |
+| `car_state` | 整数 | 与 `EnvCar_State_Enum` 一致：`0` IDLE，`1` TRACKING，`2` OBSTACLE_ALARM，`3` GAS_ALARM，`4` MANUAL_CTRL，`5` ERROR |
+
+**告警字段语义**：`alarm` 由当前**测量值与阈值**组合得到（气体超限或低于下限且使能下限报警；障碍为有效超声距离且小于触发阈值），与 `g_System_Status` 中单一 `alarm_type` 可能不完全同步，但便于上位机同时展示两类风险。
+
+**示例**
+
+```text
+$STS:12.50,0,0,0,1\r\n
+```
+
+表示气体 12.5 ppm、无障碍、无警报、状态为循迹中。
+
+```text
+$STS:620.00,1,12,3,3\r\n
+```
+
+表示气体与障碍同时越限、障碍距离 12 cm、警报码 3、状态为气体报警态（具体以运行时 `current_state` 为准）。
 
 ---
 
@@ -178,10 +211,8 @@ ECHO:<原文>\r\n
 
 ## 6. 设计说明与扩展注意
 
-1. **`@` 语义重叠**  
-   - 控制帧：`@` + **单一指令码 0～8**（其后非数字即结束数值部分）。  
-   - 传感器上行（若使用 `UART_Protocol_SendSensorData`）：`@` + **多个逗号分隔浮点**。  
-   若同端口混用，上位机解析侧应依据长度与逗号区分，或改为不同前缀（扩展时建议修改协议版本或前缀）。
+1. **上行前缀 `$`**  
+   状态帧使用 **`$STS:`** 前缀，与下行 **`@` 控制**、**`#` 阈值** 区分，避免与 `@0`～`@10` 指令帧混淆。
 
 2. **调试输出**  
    `Parse_ControlCommand` 中含 `printf("cmdValue:%d\r\n", ...)`，若重定向到同一 UART，可能与协议流混合；量产建议关闭或改用独立调试口。
@@ -196,6 +227,9 @@ ECHO:<原文>\r\n
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | 1.0 | 2026-04-12 | 初版：依据仓库 `uart_protocol`、`protocol_parser`、`GasCar_App`、`stm32f1xx_it` 整理 |
+| 1.1 | 2026-04-12 | 阈值帧由 `#T/H/G/L` 改为 `#O/G`（避障 + 气体）；与 `ProtocolEnvLimits_t` 一致 |
+| 1.2 | 2026-04-12 | 上行由传感器四路帧改为 **`$STS:` 下位机状态帧**（气体、障碍标志/距离、组合警报、小车状态） |
+| 1.3 | 2026-04-12 | 控制指令扩展 **`@9` 手动模式**、**`@10` 自动循迹模式**；与 `ControlCommand_t`、`EnvCar_OnProtocolCommand` 一致 |
 
 维护者更新协议时，请同步修改本文件及对应 `.c/.h` 中的注释，避免与 `MCU/Doc/串口协议使用说明.md`（集成教程）描述冲突。
 
@@ -207,8 +241,11 @@ ECHO:<原文>\r\n
 |------|-----------------------------------------------|------|
 | 控制 | `@1` + 换行 | 回调收到前进；若有 ECHO 任务则收到 `ECHO:@1` |
 | 停止 | `@0` + 换行 | 停止指令 |
-| 阈值 | 见 3.2 节示例一行 | 收到 `#OK:Config synced` 或 `#ERR:Parse failed` |
+| 手动模式 | `@9` + 换行 | 应用层切换为 `ENVCAR_MODE_MANUAL`；ECHO 见 4.1 |
+| 自动循迹 | `@10` + 换行 | 应用层切换为 `ENVCAR_MODE_AUTO`；ECHO 见 4.1 |
+| 阈值 | 如 `#O20,30,G0,500` 一行 | 成功为 `#OK:Config synced`；格式错为 `#ERR:Parse failed`；校验失败为 `#ERR:Invalid params` |
 | 非法 | `ABC` + 换行 | `PARSE_UNKNOWN_TYPE`；仍可能有 `ECHO:ABC` |
+| 状态 | （被动接收） | 约每 300ms 收到 `$STS:...` 一行（见 4.3 节） |
 
 ---
 

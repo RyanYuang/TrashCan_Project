@@ -7,7 +7,7 @@
   ******************************************************************************
   * @description
   * 该模块负责解析来自上位机的控制指令和阈值配置帧
-  * 支持两种下行帧：@<指令码>\r\n 和 #T...\r\n
+  * 支持两种下行帧：@<指令码>\r\n（指令码 0～10）和 #O...,G...\r\n（避障距离 + 气体浓度范围）
   ******************************************************************************
   */
 
@@ -20,11 +20,20 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "threshold_config.h"
 #include <stdint.h>
 #include <stdbool.h>
 
 /* Exported types ------------------------------------------------------------*/
+
+/**
+ * @brief 阈值配置帧解析结果（避障 + 气体浓度），由 # 帧解析后交给应用层
+ */
+typedef struct {
+    uint16_t obstacle_trig_cm;   /**< 距离小于该值(cm)判定为过近，触发避障 */
+    uint16_t obstacle_safe_cm;   /**< 距离大于该值(cm)判定为安全，可恢复运行（须大于 obstacle_trig_cm） */
+    float gas_low_ppm;           /**< 气体浓度下限(ppm)；为 0 时表示不使用下限报警 */
+    float gas_high_ppm;          /**< 气体浓度上限(ppm)，须大于 gas_low_ppm */
+} ProtocolEnvLimits_t;
 
 /**
  * @brief 控制指令枚举
@@ -39,6 +48,8 @@ typedef enum {
     CMD_SPEED_50 = 6,     // 速度50%
     CMD_SPEED_75 = 7,     // 速度75%
     CMD_SPEED_100 = 8,    // 速度100%
+    CMD_MODE_MANUAL = 9,       // 手动模式（远程 @ 控制，不跑自动循迹）
+    CMD_MODE_AUTO_TRACK = 10,  // 自动循迹模式（循迹 + 避障 + 监测）
     CMD_INVALID = 0xFF    // 无效指令
 } ControlCommand_t;
 
@@ -59,9 +70,9 @@ typedef void (*CommandCallback_t)(ControlCommand_t cmd);
 
 /**
  * @brief 阈值配置回调函数类型定义
- * @param config 新的阈值配置
+ * @param limits 避障与气体浓度限值（已由协议层校验 trig < safe、low < high）
  */
-typedef void (*ThresholdCallback_t)(const ThresholdConfig_t *config);
+typedef void (*ThresholdCallback_t)(const ProtocolEnvLimits_t *limits);
 
 /* Exported constants --------------------------------------------------------*/
 

@@ -108,34 +108,31 @@ uint16_t UART_Protocol_GetFrame(char *outBuffer, uint16_t maxLen)
 }
 
 /**
- * @brief 发送传感器数据（上行帧）
- * @param huart UART句柄指针
- * @param temp 温度 (°C)
- * @param hum 湿度 (%)
- * @param co CO浓度 (ppm)
- * @param light 光照强度 (lux)
- * @retval HAL状态
+ * @brief 发送下位机状态帧（上行）
+ * @note $STS:<gas_ppm>,<obs_flag>,<obs_cm>,<alarm>,<car_state>\\r\\n
  */
-HAL_StatusTypeDef UART_Protocol_SendSensorData(UART_HandleTypeDef *huart, 
-                                                float temp, float hum, 
-                                                float co, float light)
+HAL_StatusTypeDef UART_Protocol_SendStatusFrame(UART_HandleTypeDef *huart,
+                                                const UART_StatusUplink_t *st)
 {
-    char txBuffer[64];
+    char txBuffer[96];
     int len;
-    
-    if (huart == NULL) {
+
+    if (huart == NULL || st == NULL) {
         return HAL_ERROR;
     }
-    
-    // 格式化为协议帧：@<温度>,<湿度>,<CO>,<光照>\r\n
-    len = snprintf(txBuffer, sizeof(txBuffer), 
-                   "@%.1f,%.1f,%.1f,%.0f\r\n", 
-                   temp, hum, co, light);
-    
-    if (len > 0 && len < sizeof(txBuffer)) {
-        return HAL_UART_Transmit(huart, (uint8_t*)txBuffer, len, 100);
+
+    len = snprintf(txBuffer, sizeof(txBuffer),
+                   "$STS:%.2f,%u,%u,%u,%u\r\n",
+                   (double)st->gas_ppm,
+                   (unsigned)st->obs_flag,
+                   (unsigned)st->obs_cm,
+                   (unsigned)st->alarm,
+                   (unsigned)st->car_state);
+
+    if (len > 0 && len < (int)sizeof(txBuffer)) {
+        return HAL_UART_Transmit(huart, (uint8_t *)txBuffer, (uint16_t)len, 100);
     }
-    
+
     return HAL_ERROR;
 }
 
