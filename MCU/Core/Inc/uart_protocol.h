@@ -72,6 +72,7 @@ typedef struct {
     uint16_t obs_cm;         /**< obs_flag==NEAR 时为距离(cm)；否则为 0 */
     uint8_t alarm;         /**< UART_ALM_* */
     uint8_t car_state;       /**< 小车状态枚举数值，与 EnvCar_State_Enum 一致 */
+    uint32_t run_time_s;     /**< 系统累计运行时间（秒），与 g_System_Status.system_run_time_s 一致 */
 } UART_StatusUplink_t;
 
 /* Exported macro ------------------------------------------------------------*/
@@ -108,7 +109,7 @@ uint16_t UART_Protocol_GetFrame(char *outBuffer, uint16_t maxLen);
 
 /**
  * @brief 发送下位机状态帧（上行，与下行 @/# 不冲突，前缀为 $）
- * @note 文本格式: $STS:<gas>,<obs>,<cm>,<alarm>,<car>\\r\\n
+ * @note 文本格式: $STS:<gas>,<obs>,<cm>,<alarm>,<car>,<run_s>\\r\\n
  */
 HAL_StatusTypeDef UART_Protocol_SendStatusFrame(UART_HandleTypeDef *huart,
                                                 const UART_StatusUplink_t *st);

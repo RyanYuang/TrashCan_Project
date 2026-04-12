@@ -109,12 +109,12 @@ uint16_t UART_Protocol_GetFrame(char *outBuffer, uint16_t maxLen)
 
 /**
  * @brief 发送下位机状态帧（上行）
- * @note $STS:<gas_ppm>,<obs_flag>,<obs_cm>,<alarm>,<car_state>\\r\\n
+ * @note $STS:<gas_ppm>,<obs_flag>,<obs_cm>,<alarm>,<car_state>,<run_time_s>\\r\\n
  */
 HAL_StatusTypeDef UART_Protocol_SendStatusFrame(UART_HandleTypeDef *huart,
                                                 const UART_StatusUplink_t *st)
 {
-    char txBuffer[96];
+    char txBuffer[112];
     int len;
 
     if (huart == NULL || st == NULL) {
@@ -122,12 +122,13 @@ HAL_StatusTypeDef UART_Protocol_SendStatusFrame(UART_HandleTypeDef *huart,
     }
 
     len = snprintf(txBuffer, sizeof(txBuffer),
-                   "$STS:%.2f,%u,%u,%u,%u\r\n",
+                   "$STS:%.2f,%u,%u,%u,%u,%lu\r\n",
                    (double)st->gas_ppm,
                    (unsigned)st->obs_flag,
                    (unsigned)st->obs_cm,
                    (unsigned)st->alarm,
-                   (unsigned)st->car_state);
+                   (unsigned)st->car_state,
+                   (unsigned long)st->run_time_s);
 
     if (len > 0 && len < (int)sizeof(txBuffer)) {
         return HAL_UART_Transmit(huart, (uint8_t *)txBuffer, (uint16_t)len, 100);

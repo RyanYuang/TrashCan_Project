@@ -124,6 +124,7 @@ static void EnvCar_StatusUplinkOnce(void)
         .obs_cm = obs_cm,
         .alarm = alarm,
         .car_state = (uint8_t)g_System_Status.current_state,
+        .run_time_s = g_System_Status.system_run_time_s,
     };
     (void)UART_Protocol_SendStatusFrame(&huart2, &st);
 }

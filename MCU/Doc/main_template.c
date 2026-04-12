@@ -93,6 +93,7 @@ if (HAL_GetTick() - lastSendTime >= 500) {  // 每500ms发送一次
         .obs_cm = 0,
         .alarm = UART_ALM_NONE,
         .car_state = 1,
+        .run_time_s = 0,
     };
     UART_Protocol_SendStatusFrame(&huart1, &st);
     
