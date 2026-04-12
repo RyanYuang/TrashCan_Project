@@ -195,4 +195,8 @@ void EnvCar_Emergency_Stop(void);
  */
 void EnvCar_Manual_Control(int16_t left_speed, int16_t right_speed);
 
+/** USART2 接收完整行后由中断登记，主循环回显给上位机 */
+void EnvCar_USART2_ScheduleHostReply_Isr(const char *frame, uint16_t len);
+void EnvCar_USART2_ProcessHostReply(void);
+
 #endif /* _ENVCAR_APP_H_ */

@@ -23,9 +23,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
-#include "User_Main.h"
+#include "GasCar_App.h"
 #include "uart_protocol.h"
 #include "protocol_parser.h"
+#include "usart.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -359,11 +360,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 			uint16_t len = UART_Protocol_GetFrame(rxFrame, sizeof(rxFrame));
 
 			if (len > 0) {
-				// 打印接收到的消息（通过串口2）
-				printf("收到: %s\r\n", rxFrame);
-
-				// 在中断中直接解析协议帧
-				// 解析后会自动更新 Direction 和 Speed（通过回调）
+				EnvCar_USART2_ScheduleHostReply_Isr(rxFrame, len);
 				Protocol_Parse(rxFrame);
 			}
 		}

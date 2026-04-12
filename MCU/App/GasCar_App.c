@@ -10,6 +10,9 @@
 #include "GasCar_App.h"
 #include "MQ-2.h"
 #include "platform_log.h"
+#include "protocol_parser.h"
+#include "uart_protocol.h"
+#include "usart.h"
 #include <stdio.h>
 
 /* ==================== 全局变量定义 ==================== */
@@ -48,6 +51,77 @@ static OLED_Handle s_oled_handle;
 static JC278A_Handle s_wireless_handle;
 static uint32_t s_last_tick = 0;
 static uint8_t s_display_page = 0;  // OLED显示页面索引
+
+/**
+ * USART2 上位机回显用的“待发送”缓存。
+ * 在接收完成中断里只登记内容，由主循环 EnvCar_USART2_ProcessHostReply 再发送，
+ * 避免在中断里长时间 HAL_UART_Transmit。
+ */
+static volatile uint8_t s_usart2_host_reply_pending;
+static volatile uint16_t s_usart2_host_reply_len;
+static char s_usart2_host_reply_buf[256];
+
+/**
+ * @brief 在中断里登记一帧待回显到上位机（USART2）的文本。
+ *
+ * 典型调用链：HAL_UART_RxCpltCallback → 本函数。仅 memcpy 并置 pending，
+ * 不发送串口，以缩短 ISR 执行时间并降低与 HAL 收发状态冲突的风险。
+ *
+ * @param frame 已解析的一行协议文本（不含行尾回车/换行）。
+ * @param len   有效字节数；过长时截断，并保证缓冲末尾为字符串结束符。
+ */
+void EnvCar_USART2_ScheduleHostReply_Isr(const char *frame, uint16_t len)
+{
+    if (frame == NULL || len == 0) {
+        return;
+    }
+    if (len >= sizeof(s_usart2_host_reply_buf)) {
+        len = (uint16_t)(sizeof(s_usart2_host_reply_buf) - 1U);
+    }
+    memcpy(s_usart2_host_reply_buf, frame, len);
+    s_usart2_host_reply_buf[len] = '\0';
+    s_usart2_host_reply_len = len;
+    s_usart2_host_reply_pending = 1;
+}
+
+/**
+ * @brief 在主循环中处理 USART2 上位机回显：取出待发送内容并发出。
+ *
+ * 应在 EnvCar_App_Task（或等价主循环）中周期性调用。若 pending 为真，
+ * 短暂关中断把共享缓冲拷到栈上、清除 pending，再开中断后格式化为
+ * ECHO:原文 + 回车换行，经 USART2 阻塞发送；LOG_TEST 用于另一调试后端输出同内容。
+ */
+void EnvCar_USART2_ProcessHostReply(void)
+{
+    if (!s_usart2_host_reply_pending) {
+        return;
+    }
+
+    char local[256];
+    uint16_t len;
+
+    __disable_irq();
+    if (!s_usart2_host_reply_pending) {
+        __enable_irq();
+        return;
+    }
+    len = s_usart2_host_reply_len;
+    if (len >= sizeof(local)) {
+        len = (uint16_t)(sizeof(local) - 1U);
+    }
+    memcpy(local, s_usart2_host_reply_buf, len);
+    local[len] = '\0';
+    s_usart2_host_reply_pending = 0;
+    __enable_irq();
+
+    char line[288];
+    int n = snprintf(line, sizeof(line), "ECHO:%s\r\n", local);
+    if (n > 0 && n < (int)sizeof(line)) {
+        (void)HAL_UART_Transmit(&huart2, (uint8_t *)line, (uint16_t)n, 200);
+        LOG_TEST("%s", line);
+    }
+    
+}
 
 static int EnvCar_OLED_Init(void)
 {
@@ -106,7 +180,12 @@ int EnvCar_App_Init(void)
     g_System_Status.current_state = ENVCAR_STATE_IDLE;
     g_System_Status.system_run_time_s = 0;
     s_last_tick = HAL_GetTick();
-    
+
+    Protocol_Parser_Init();
+    if (UART_Protocol_Init(&huart2) != HAL_OK) {
+        return -1;
+    }
+
     return 0;
 }
 
@@ -115,6 +194,8 @@ int EnvCar_App_Init(void)
  */
 void EnvCar_App_Task(void)
 {
+    EnvCar_USART2_ProcessHostReply();
+
     // 更新系统运行时间
     uint32_t current_tick = HAL_GetTick();
     if (current_tick - s_last_tick >= 1000) {
@@ -206,11 +287,11 @@ void EnvCar_Sensor_Update(void)
         static uint32_t s_ir_log_tick;
         if ((HAL_GetTick() - s_ir_log_tick) >= 500U) {
             s_ir_log_tick = HAL_GetTick();
-            LOG_TEST("IR raw=0x%02X LCR=%u%u%u\r\n",
-                     (unsigned)LineTrack_ReadRaw5(),
-                     (unsigned)g_Sensor_Data.ir_left,
-                     (unsigned)g_Sensor_Data.ir_center,
-                     (unsigned)g_Sensor_Data.ir_right);
+            // LOG_TEST("IR raw=0x%02X LCR=%u%u%u\r\n",
+            //          (unsigned)LineTrack_ReadRaw5(),
+            //          (unsigned)g_Sensor_Data.ir_left,
+            //          (unsigned)g_Sensor_Data.ir_center,
+            //          (unsigned)g_Sensor_Data.ir_right);
         }
     }
 
@@ -230,9 +311,9 @@ void EnvCar_Sensor_Update(void)
         static uint32_t s_mq2_log_tick;
         if ((HAL_GetTick() - s_mq2_log_tick) >= 1000U) {
             s_mq2_log_tick = HAL_GetTick();
-            LOG_TEST("MQ2 ADC=%lu PPM=%.2f\r\n",
-                     (unsigned long)g_Sensor_Data.gas_adc_value,
-                     (double)g_Sensor_Data.gas_concentration_ppm);
+            // LOG_TEST("MQ2 ADC=%lu PPM=%.2f\r\n",
+            //          (unsigned long)g_Sensor_Data.gas_adc_value,
+            //          (double)g_Sensor_Data.gas_concentration_ppm);
         }
     }
 
