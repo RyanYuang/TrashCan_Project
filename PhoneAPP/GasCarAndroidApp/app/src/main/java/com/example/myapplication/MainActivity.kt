@@ -290,6 +290,7 @@ fun DisplayPanel(sts: EnvCarSppProtocol.StsUplink?) {
     } ?: "—"
     val alarmStatus = sts?.let { EnvCarSppProtocol.alarmLabelZh(it.alarm) } ?: "—"
     val carStatus = sts?.let { EnvCarSppProtocol.carStateLabelZh(it.carState) } ?: "—"
+    val runTime = sts?.let { String.format(Locale.US, "%d s", it.runTimeS) } ?: "—"
 
     val alarmOk = sts == null || sts.alarm == EnvCarSppProtocol.Alarm.NONE
 
@@ -343,6 +344,13 @@ fun DisplayPanel(sts: EnvCarSppProtocol.StsUplink?) {
                     modifier = Modifier.weight(1f)
                 )
             }
+            Spacer(modifier = Modifier.height(10.dp))
+            MetricTile(
+                label = "运行时间",
+                value = runTime,
+                valueColor = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

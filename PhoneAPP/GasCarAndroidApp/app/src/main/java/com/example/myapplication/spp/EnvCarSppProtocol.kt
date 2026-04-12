@@ -5,6 +5,7 @@ import kotlin.math.roundToInt
 
 /**
  * 与 MCU `USART2_通信协议规范` / `uart_protocol` / `protocol_parser` 对齐的 SPP 文本协议。
+ * `$STS:` 含运行时间字段（规范 **v1.4** 起第 6 字段）；仍兼容仅 5 字段的旧固件。
  * 控制码 **0～10**（含 v1.3：`@9` 手动、`@10` 自动循迹）；终端「原始数据」区以外的逻辑应通过本文件组帧、拆帧与解析。
  */
 object EnvCarSppProtocol {
@@ -54,6 +55,8 @@ object EnvCarSppProtocol {
         val obsCm: Int,
         val alarm: Int,
         val carState: Int,
+        /** 系统运行时间（秒），与 MCU `run_time_s` 一致；规范 v1.4 起为第 6 字段。 */
+        val runTimeS: Long,
     )
 
     /** 完整一行的语义（不含行尾 CRLF）。 */
@@ -135,14 +138,16 @@ object EnvCarSppProtocol {
     private fun parseSts(line: String): StsUplink? {
         val body = line.removePrefix(STS_PREFIX).trim()
         val parts = body.split(',')
-        if (parts.size != 5) return null
+        if (parts.size !in 5..6) return null
         return try {
+            val runTimeS = if (parts.size >= 6) parts[5].toLong() else 0L
             StsUplink(
                 gasPpm = parts[0].toFloat(),
                 obsFlag = parts[1].toInt(),
                 obsCm = parts[2].toInt(),
                 alarm = parts[3].toInt(),
                 carState = parts[4].toInt(),
+                runTimeS = runTimeS,
             )
         } catch (_: NumberFormatException) {
             null
