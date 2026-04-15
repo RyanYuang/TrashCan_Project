@@ -88,6 +88,86 @@ static uint8_t s_gas_trip_cnt;
 static uint8_t s_gas_clear_cnt;
 static uint8_t s_gas_debounced_active;
 static uint8_t s_log_was_gas_alarm;
+static volatile uint8_t s_proto_cmd_pending;
+static volatile ControlCommand_t s_proto_cmd_latest = CMD_INVALID;
+static uint16_t s_manual_speed_abs = 300U;
+static ControlCommand_t s_manual_motion_cmd = CMD_STOP;
+
+static void EnvCar_ApplyManualMotion(ControlCommand_t cmd)
+{
+    int16_t s = (int16_t)s_manual_speed_abs;
+    switch (cmd) {
+        case CMD_STOP:
+            TB6612_Stop();
+            break;
+        case CMD_FORWARD:
+            TB6612_SetSpeed(s, s);
+            break;
+        case CMD_BACKWARD:
+            TB6612_SetSpeed((int16_t)-s, (int16_t)-s);
+            break;
+        case CMD_TURN_LEFT:
+            TB6612_SetSpeed((int16_t)-s, s);
+            break;
+        case CMD_TURN_RIGHT:
+            TB6612_SetSpeed(s, (int16_t)-s);
+            break;
+        default:
+            break;
+    }
+}
+
+static void EnvCar_ProcessProtocolCommand(void)
+{
+    ControlCommand_t cmd;
+
+    if (s_proto_cmd_pending == 0U) {
+        return;
+    }
+
+    __disable_irq();
+    if (s_proto_cmd_pending == 0U) {
+        __enable_irq();
+        return;
+    }
+    cmd = s_proto_cmd_latest;
+    s_proto_cmd_pending = 0U;
+    __enable_irq();
+
+    /* 模式指令：直接切换模式 */
+    if (cmd == CMD_MODE_MANUAL) {
+        EnvCar_Set_Mode(ENVCAR_MODE_MANUAL);
+        return;
+    }
+    if (cmd == CMD_MODE_AUTO_TRACK) {
+        EnvCar_Set_Mode(ENVCAR_MODE_AUTO);
+        return;
+    }
+
+    /* 速度档位：记录新速度，若当前在手动且运动指令有效则立即生效 */
+    switch (cmd) {
+        case CMD_SPEED_25:  s_manual_speed_abs = 175U; break;
+        case CMD_SPEED_50:  s_manual_speed_abs = 300U; break;
+        case CMD_SPEED_75:  s_manual_speed_abs = 500U; break;
+        case CMD_SPEED_100: s_manual_speed_abs = 700U; break;
+        default: break;
+    }
+    if (cmd >= CMD_SPEED_25 && cmd <= CMD_SPEED_100) {
+        if (g_EnvCar_Config.mode == ENVCAR_MODE_MANUAL) {
+            EnvCar_ApplyManualMotion(s_manual_motion_cmd);
+        }
+        return;
+    }
+
+    /* 运动指令：切到手动并执行 */
+    if (cmd <= CMD_TURN_RIGHT) {
+        if (g_EnvCar_Config.mode != ENVCAR_MODE_MANUAL) {
+            EnvCar_Set_Mode(ENVCAR_MODE_MANUAL);
+        }
+        s_manual_motion_cmd = cmd;
+        EnvCar_ApplyManualMotion(cmd);
+    }
+}
 
 #if PLATFORM_LOG_ENABLE && PLATFORM_LOG_TEST_ENABLE
 /** 周期性打印：传感器 + 状态（避免刷屏） */
@@ -316,17 +396,9 @@ static int EnvCar_OLED_Init(void)
  */
 static void EnvCar_OnProtocolCommand(ControlCommand_t cmd)
 {
-    /* 步骤1：根据上位机指令切换工作模式（仅轻量操作） */
-    switch (cmd) {
-        case CMD_MODE_MANUAL:
-            EnvCar_Set_Mode(ENVCAR_MODE_MANUAL);
-            break;
-        case CMD_MODE_AUTO_TRACK:
-            EnvCar_Set_Mode(ENVCAR_MODE_AUTO);
-            break;
-        default:
-            break;
-    }
+    /* 中断上下文仅登记命令，避免在 ISR 执行电机/耗时逻辑 */
+    s_proto_cmd_latest = cmd;
+    s_proto_cmd_pending = 1U;
 }
 
 /* ==================== 外部API实现 ==================== */
@@ -388,6 +460,8 @@ void EnvCar_App_Task(void)
     LOG_TEST("[EnvCar] loop_count=%u\r\n", s_loop_count);
     /* 步骤0：处理 USART2 上位机回显（中断登记、主循环发送） */
     EnvCar_USART2_ProcessHostReply();
+    /* 步骤0.2：处理串口协议命令（中断登记，主循环执行） */
+    EnvCar_ProcessProtocolCommand();
 
     /* 步骤0.1：每秒递增系统运行时间 */
     uint32_t current_tick = HAL_GetTick();
