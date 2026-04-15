@@ -87,8 +87,8 @@ typedef struct {
     bool ir_right;                   // 右侧红外状态
     
     // 超声波距离数据
-    uint16_t ultrasonic1_distance_cm; // 超声波1距离（厘米）
-    uint16_t ultrasonic2_distance_cm; // 超声波2距离（厘米）
+    uint16_t ultrasonic1_distance_cm; /**< 超声波1距离（厘米），由 ultrasonic_task1 更新 */
+    uint16_t ultrasonic2_distance_cm; /**< 超声波2；仅一路硬件时保持 0，不参与 EnvCar_MinUltrasonicCm */
     
     // 气体浓度数据
     float gas_concentration_ppm;      // 气体浓度（ppm）

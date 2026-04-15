@@ -4,16 +4,37 @@
  * @brief          : 气体泄露巡检小车应用层实现
  * @author         : AI Assistant
  * @date           : 2026-02-20
+ *
+ * EnvCar_App_Task 主循环步骤概览：
+ *  0   USART2 回显处理 + 运行时间秒计数
+ *  1   EnvCar_Sensor_Update 采集红外/超声/MQ-2
+ *  1.1 可选 EnvCar_App_LogPeriodic 周期调试输出
+ *  2   EnvCar_Gas_Monitor_Handle 气体去抖；报警则急停、声光、上报并 return
+ *  3   气体恢复分支：关声光、清标志、按模式恢复状态字
+ *  4   switch(mode)：自动=超声避障+红外循迹；手动=状态；停止=停车
+ *  5~7 OLED / 无线上传 / 无线解析（占位）
+ *  8   EnvCar_StatusUplinkOnce 周期 $STS
  ******************************************************************************
  */
 
 #include "GasCar_App.h"
 #include "MQ-2.h"
+#include "ultrasonic.h"
+#include "line_track.h"
 #include "platform_log.h"
 #include "protocol_parser.h"
 #include "uart_protocol.h"
 #include "usart.h"
 #include <stdio.h>
+
+/** 超声波触发+捕获窗口约 21ms，节流避免主循环每圈阻塞 */
+#define ENVCAR_ULTRASONIC_PERIOD_MS 10U
+/** MQ-2 PPM 一阶低通系数（越大越跟手、噪声越大） */
+#define ENVCAR_GAS_PPM_FILTER_ALPHA 0.25f
+#define ENVCAR_GAS_TRIP_COUNT       4U
+#define ENVCAR_GAS_CLEAR_COUNT      4U
+/** 周期性传感器/状态 LOG 间隔（ms），依赖 PLATFORM_LOG_TEST_ENABLE */
+#define ENVCAR_APP_SENSOR_LOG_PERIOD_MS 10U
 
 /* ==================== 全局变量定义 ==================== */
 
@@ -22,7 +43,7 @@ EnvCar_Config_t g_EnvCar_Config = {
     .mode = ENVCAR_MODE_AUTO,
     .tracking_speed_base = 300,  // 循迹基准速度
     .obstacle_cfg = {
-        .threshold_distance_cm = 20,  // 20cm触发避障
+        .threshold_distance_cm = 10,  // 10cm触发避障
         .safe_distance_cm = 30,       // 30cm恢复运行
         .enable = true
     },
@@ -61,15 +82,55 @@ static volatile uint8_t s_usart2_host_reply_pending;
 static volatile uint16_t s_usart2_host_reply_len;
 static char s_usart2_host_reply_buf[256];
 
-/** 两路超声波中取较小有效距离 (cm)，均为 0 时返回 0 */
+/** 气体去抖：确认超限后维持的类型，供 Task 与声光使用 */
+static Alarm_Type_Enum s_gas_debounced_kind = ALARM_TYPE_NONE;
+static uint8_t s_gas_trip_cnt;
+static uint8_t s_gas_clear_cnt;
+static uint8_t s_gas_debounced_active;
+static uint8_t s_log_was_gas_alarm;
+
+#if PLATFORM_LOG_ENABLE && PLATFORM_LOG_TEST_ENABLE
+/** 周期性打印：传感器 + 状态（避免刷屏） */
+static void EnvCar_App_LogPeriodic(void)
+{
+    static uint32_t s_log_tick;
+    uint32_t now = HAL_GetTick();
+    /* 步骤1：未到打印周期则直接返回 */
+    if ((now - s_log_tick) < ENVCAR_APP_SENSOR_LOG_PERIOD_MS) {
+        return;
+    }
+    /* 步骤2：刷新周期起点 */
+    s_log_tick = now;
+
+    /* 步骤3：输出一行综合状态（模式/状态/报警/传感器） */
+    LOG_TEST("[EnvCar] mode=%u state=%u alarm=%u act=%u adc=%lu ppm=%.1f US1=%u US2=%u IR=%u%u%u raw=0x%02X\r\n",
+             (unsigned)g_EnvCar_Config.mode,
+             (unsigned)g_System_Status.current_state,
+             (unsigned)g_System_Status.alarm_type,
+             (unsigned)g_System_Status.is_alarm_active,
+             (unsigned long)g_Sensor_Data.gas_adc_value,
+             (double)g_Sensor_Data.gas_concentration_ppm,
+             (unsigned)g_Sensor_Data.ultrasonic1_distance_cm,
+             (unsigned)g_Sensor_Data.ultrasonic2_distance_cm,
+             (unsigned)g_Sensor_Data.ir_left,
+             (unsigned)g_Sensor_Data.ir_center,
+             (unsigned)g_Sensor_Data.ir_right,
+             (unsigned)LineTrack_ReadRaw5());
+}
+#endif
+
+/** 有效超声波距离 (cm)：仅一路硬件时等价于路1；路2 非 0 时取两路较小值 */
 static uint16_t EnvCar_MinUltrasonicCm(void)
 {
+    /* 步骤1：读取缓存（单路工程下路2 恒为 0，min 即路1） */
     uint16_t d1 = g_Sensor_Data.ultrasonic1_distance_cm;
     uint16_t d2 = g_Sensor_Data.ultrasonic2_distance_cm;
     uint16_t m = 0;
+    /* 步骤2：先取路1有效值（非0 表示最近一次测到有效回波） */
     if (d1 > 0U) {
         m = d1;
     }
+    /* 步骤3：路2有效且更小时，改用路2 */
     if (d2 > 0U && (m == 0U || d2 < m)) {
         m = d2;
     }
@@ -81,11 +142,14 @@ static void EnvCar_StatusUplinkOnce(void)
 {
     static uint32_t s_last_uplink_ms;
     uint32_t now = HAL_GetTick();
-    if ((now - s_last_uplink_ms) < 300U) {
+    /* 步骤1：300ms 内已发送过则跳过，减轻串口负载 */
+    if ((now - s_last_uplink_ms) < 10U) {
         return;
     }
+    /* 步骤2：记录本次发送时刻 */
     s_last_uplink_ms = now;
 
+    /* 步骤3：取有效最小距离，计算障碍侧风险与上报距离 */
     uint16_t min_cm = EnvCar_MinUltrasonicCm();
     uint8_t obs_flag = UART_OBS_NONE;
     uint16_t obs_cm = 0;
@@ -95,6 +159,7 @@ static void EnvCar_StatusUplinkOnce(void)
         obs_cm = min_cm;
     }
 
+    /* 步骤4：按阈值判断气体风险位（与配置 enable / 高低限一致） */
     float ppm = g_Sensor_Data.gas_concentration_ppm;
     uint8_t gas_risk = 0U;
     if (g_EnvCar_Config.gas_cfg.enable) {
@@ -106,6 +171,7 @@ static void EnvCar_StatusUplinkOnce(void)
         }
     }
 
+    /* 步骤5：组合障碍与气体，得到协议用 alarm 编码 */
     uint8_t obs_risk = (obs_flag == UART_OBS_NEAR) ? 1U : 0U;
     uint8_t alarm;
     if (obs_risk != 0U && gas_risk != 0U) {
@@ -118,6 +184,7 @@ static void EnvCar_StatusUplinkOnce(void)
         alarm = UART_ALM_NONE;
     }
 
+    /* 步骤6：组帧并通过 USART2 发出 */
     UART_StatusUplink_t st = {
         .gas_ppm = ppm,
         .obs_flag = obs_flag,
@@ -132,11 +199,14 @@ static void EnvCar_StatusUplinkOnce(void)
 /** 串口 # 阈值帧解析成功后写入 g_EnvCar_Config */
 static void EnvCar_OnProtocolThreshold(const ProtocolEnvLimits_t *lim)
 {
+    /* 步骤1：空指针保护 */
     if (lim == NULL) {
         return;
     }
+    /* 步骤2：写入避障触发距离与安全恢复距离 */
     g_EnvCar_Config.obstacle_cfg.threshold_distance_cm = lim->obstacle_trig_cm;
     g_EnvCar_Config.obstacle_cfg.safe_distance_cm = lim->obstacle_safe_cm;
+    /* 步骤3：写入气体高低限；low>0 时使能下限报警 */
     g_EnvCar_Config.gas_cfg.gas_threshold_low_ppm = lim->gas_low_ppm;
     g_EnvCar_Config.gas_cfg.gas_threshold_high_ppm = lim->gas_high_ppm;
     g_EnvCar_Config.gas_cfg.enable_low_alarm = (lim->gas_low_ppm > 0.0f);
@@ -153,12 +223,15 @@ static void EnvCar_OnProtocolThreshold(const ProtocolEnvLimits_t *lim)
  */
 void EnvCar_USART2_ScheduleHostReply_Isr(const char *frame, uint16_t len)
 {
+    /* 步骤1：参数合法性 */
     if (frame == NULL || len == 0) {
         return;
     }
+    /* 步骤2：超长截断，保留末尾 '\0' 空间 */
     if (len >= sizeof(s_usart2_host_reply_buf)) {
         len = (uint16_t)(sizeof(s_usart2_host_reply_buf) - 1U);
     }
+    /* 步骤3：拷贝到共享缓冲并置 pending，由主循环发送 */
     memcpy(s_usart2_host_reply_buf, frame, len);
     s_usart2_host_reply_buf[len] = '\0';
     s_usart2_host_reply_len = len;
@@ -174,6 +247,7 @@ void EnvCar_USART2_ScheduleHostReply_Isr(const char *frame, uint16_t len)
  */
 void EnvCar_USART2_ProcessHostReply(void)
 {
+    /* 步骤1：无待发送内容则返回 */
     if (!s_usart2_host_reply_pending) {
         return;
     }
@@ -181,6 +255,7 @@ void EnvCar_USART2_ProcessHostReply(void)
     char local[256];
     uint16_t len;
 
+    /* 步骤2：关中断，双检 pending，把 ISR 写入的缓冲搬到栈上并清 pending */
     __disable_irq();
     if (!s_usart2_host_reply_pending) {
         __enable_irq();
@@ -195,6 +270,7 @@ void EnvCar_USART2_ProcessHostReply(void)
     s_usart2_host_reply_pending = 0;
     __enable_irq();
 
+    /* 步骤3：组 ECHO 行并阻塞发 USART2，同时可选 LOG_TEST */
     char line[288];
     int n = snprintf(line, sizeof(line), "ECHO:%s\r\n", local);
     if (n > 0 && n < (int)sizeof(line)) {
@@ -210,21 +286,25 @@ static int EnvCar_OLED_Init(void)
     Pin_Struct oled_sda = {GPIOB, GPIO_PIN_14};
     Pin_Struct oled_scl = {GPIOB, GPIO_PIN_15};
 
+    /* 步骤1：创建 I2C 软件总线设备句柄 */
     oled_status = OLED_Device_Create(&s_oled_handle, &oled_sda, &oled_scl, 0x3C);
     if (oled_status != OLED_Status_OK) {
         return -1;
     }
 
+    /* 步骤2：探测 OLED 是否应答 */
     oled_status = OLED_Device_Detection(&s_oled_handle);
     if (oled_status != OLED_Status_OK) {
         return -1;
     }
 
+    /* 步骤3：发送初始化命令序列 */
     oled_status = OLED_Init(&s_oled_handle);
     if (oled_status != OLED_Status_OK) {
         return -1;
     }
 
+    /* 步骤4：清屏并显示开机提示 */
     OLED_Clear(&s_oled_handle);
     OLED_ShowString(&s_oled_handle, 0, 0, "EnvCar Init", 16);
     return 0;
@@ -236,6 +316,7 @@ static int EnvCar_OLED_Init(void)
  */
 static void EnvCar_OnProtocolCommand(ControlCommand_t cmd)
 {
+    /* 步骤1：根据上位机指令切换工作模式（仅轻量操作） */
     switch (cmd) {
         case CMD_MODE_MANUAL:
             EnvCar_Set_Mode(ENVCAR_MODE_MANUAL);
@@ -255,174 +336,239 @@ static void EnvCar_OnProtocolCommand(ControlCommand_t cmd)
  */
 int EnvCar_App_Init(void)
 {
-    // 初始化TB6612电机驱动
+    /* 步骤1：电机驱动初始化并默认停车 */
     TB6612_Init();
     TB6612_Stop();
-    
-    // 初始化超声波传感器
+
+    /* 步骤2：超声波 TIM 输入捕获与触发脚 */
     ultrasonic_init();
-    
-    // 初始化蜂鸣器
+
+    /* 步骤3：蜂鸣器默认静音 */
     Beep1_TurnOff();
-    
-    // 初始化RGB指示灯
+
+    /* 步骤4：RGB 灯默认全灭 */
     Red_TurnOff();
     Green_TurnOff();
     Blue_TurnOff();
 
-    // 初始化OLED显示屏
+    /* 步骤5：OLED 显示设备 */
     if (EnvCar_OLED_Init() != 0) {
         return -1;
     }
-    
-    // 初始化系统状态
+
+    /* 步骤6：应用层状态与运行时间基准 */
     g_System_Status.current_state = ENVCAR_STATE_IDLE;
     g_System_Status.system_run_time_s = 0;
     s_last_tick = HAL_GetTick();
 
+    /* 步骤7：串口协议解析与回调注册 */
     Protocol_Parser_Init();
     Protocol_Parser_RegisterThresholdCallback(EnvCar_OnProtocolThreshold);
     Protocol_Parser_RegisterCommandCallback(EnvCar_OnProtocolCommand);
+    /* 步骤8：USART2 协议栈（与上位机通信） */
     if (UART_Protocol_Init(&huart2) != HAL_OK) {
         return -1;
     }
+
+    /* 步骤9：调试日志提示初始化完成 */
+    LOG_TEST("[EnvCar] App_Init OK (log period %ums)\r\n", (unsigned)ENVCAR_APP_SENSOR_LOG_PERIOD_MS);
 
     return 0;
 }
 
 /**
  * @brief 气体巡检小车主循环任务
+ * @note 建议周期 50~100ms 调用。流程顺序：串口回显 → 运行时间 → 采集 → 日志 → 气体 → 模式任务 → OLED/无线 → 状态上报。
  */
 void EnvCar_App_Task(void)
 {
+    // 循环次数LOG_TEST
+    static uint32_t s_loop_count = 0;
+    s_loop_count++;
+    LOG_TEST("[EnvCar] loop_count=%u\r\n", s_loop_count);
+    /* 步骤0：处理 USART2 上位机回显（中断登记、主循环发送） */
     EnvCar_USART2_ProcessHostReply();
 
-    // 更新系统运行时间
+    /* 步骤0.1：每秒递增系统运行时间 */
     uint32_t current_tick = HAL_GetTick();
     if (current_tick - s_last_tick >= 1000) {
         g_System_Status.system_run_time_s++;
         s_last_tick = current_tick;
     }
-    
-    // 1. 采集传感器数据
+
+    /* 步骤1：采集全部传感器数据写入 g_Sensor_Data */
     EnvCar_Sensor_Update();
-    
-    // 2. 气体浓度监测（最高优先级）
+
+#if PLATFORM_LOG_ENABLE && PLATFORM_LOG_TEST_ENABLE
+    /* 步骤1.1：周期性调试打印（受宏与周期控制） */
+    EnvCar_App_LogPeriodic();
+#endif
+
+    /* 步骤2：气体监测（去抖后）；超限则最高优先级停机+报警并结束本周期 */
     int gas_alarm = EnvCar_Gas_Monitor_Handle();
     if (gas_alarm == 1) {
+        /* 步骤2a：首次进入气体报警时打一条边沿日志 */
+        if (s_log_was_gas_alarm == 0U) {
+            LOG_TEST("[EnvCar] GAS TRIP kind=%u ppm=%.1f thr_high=%.1f thr_low=%.1f low_en=%u\r\n",
+                     (unsigned)s_gas_debounced_kind,
+                     (double)g_Sensor_Data.gas_concentration_ppm,
+                     (double)g_EnvCar_Config.gas_cfg.gas_threshold_high_ppm,
+                     (double)g_EnvCar_Config.gas_cfg.gas_threshold_low_ppm,
+                     (unsigned)g_EnvCar_Config.gas_cfg.enable_low_alarm);
+        }
+        s_log_was_gas_alarm = 1U;
+        /* 步骤2b：置状态、急停、声光报警、立即上报一帧状态 */
         g_System_Status.current_state = ENVCAR_STATE_GAS_ALARM;
-        g_System_Status.alarm_type = ALARM_TYPE_GAS_HIGH;
+        g_System_Status.alarm_type = s_gas_debounced_kind;
         g_System_Status.is_alarm_active = true;
         EnvCar_Emergency_Stop();
-        EnvCar_Alarm_Control(ALARM_TYPE_GAS_HIGH, true);
+        EnvCar_Alarm_Control(g_System_Status.alarm_type, true);
         EnvCar_StatusUplinkOnce();
-        return;  // 气体报警时强制停机，不执行后续逻辑
+        return;  /* 本周期不再执行循迹/避障等后续逻辑 */
     }
-    
-    // 3. 根据工作模式执行相应任务
+
+    /* 步骤3：气体已恢复安全 → 关声光、清报警标志并按模式恢复业务状态 */
+    if (g_System_Status.current_state == ENVCAR_STATE_GAS_ALARM ||
+        g_System_Status.alarm_type == ALARM_TYPE_GAS_HIGH ||
+        g_System_Status.alarm_type == ALARM_TYPE_GAS_LOW) {
+        if (s_log_was_gas_alarm != 0U) {
+            LOG_TEST("[EnvCar] GAS cleared mode=%u ppm=%.1f\r\n",
+                     (unsigned)g_EnvCar_Config.mode,
+                     (double)g_Sensor_Data.gas_concentration_ppm);
+        }
+        s_log_was_gas_alarm = 0U;
+        EnvCar_Alarm_Control(ALARM_TYPE_GAS_HIGH, false);
+        g_System_Status.is_alarm_active = false;
+        g_System_Status.alarm_type = ALARM_TYPE_NONE;
+        if (g_EnvCar_Config.mode == ENVCAR_MODE_AUTO) {
+            g_System_Status.current_state = ENVCAR_STATE_TRACKING;
+        } else if (g_EnvCar_Config.mode == ENVCAR_MODE_MANUAL) {
+            g_System_Status.current_state = ENVCAR_STATE_MANUAL_CTRL;
+        } else {
+            g_System_Status.current_state = ENVCAR_STATE_IDLE;
+        }
+    }
+
+    /* 步骤4：按当前工作模式执行（自动=避障+循迹；手动=待机控车；停止=空闲+停车） */
     switch (g_EnvCar_Config.mode) {
-        case ENVCAR_MODE_AUTO:
-            // 自动模式：循迹 + 避障
-            
-            // 3.1 超声波避障检测
+        case ENVCAR_MODE_AUTO: {
+            static uint8_t s_log_was_obstacle;
+
+            /* 步骤4.1：超声波避障判定（滞回） */
             int obstacle_detected = EnvCar_Obstacle_Detect_Handle();
             if (obstacle_detected == 1) {
+                if (s_log_was_obstacle == 0U) {
+                    LOG_TEST("[EnvCar] OBSTACLE min_cm=%u th=%u safe=%u\r\n",
+                             (unsigned)EnvCar_MinUltrasonicCm(),
+                             (unsigned)g_EnvCar_Config.obstacle_cfg.threshold_distance_cm,
+                             (unsigned)g_EnvCar_Config.obstacle_cfg.safe_distance_cm);
+                }
+                s_log_was_obstacle = 1U;
+                /* 步骤4.1a：有障碍 → 停车、声光、置障碍报警状态 */
                 g_System_Status.current_state = ENVCAR_STATE_OBSTACLE_ALARM;
                 g_System_Status.alarm_type = ALARM_TYPE_OBSTACLE;
                 g_System_Status.is_alarm_active = true;
                 EnvCar_Emergency_Stop();
                 EnvCar_Alarm_Control(ALARM_TYPE_OBSTACLE, true);
             } else {
-                // 无障碍物，执行循迹
-                if (g_System_Status.is_alarm_active && 
+                /* 步骤4.2：无障碍时，若此前为障碍报警则解除声光 */
+                if (g_System_Status.is_alarm_active &&
                     g_System_Status.alarm_type == ALARM_TYPE_OBSTACLE) {
-                    // 障碍物消失，恢复正常
+                    if (s_log_was_obstacle != 0U) {
+                        LOG_TEST("[EnvCar] OBSTACLE cleared min_cm=%u\r\n",
+                                 (unsigned)EnvCar_MinUltrasonicCm());
+                    }
+                    s_log_was_obstacle = 0U;
                     EnvCar_Alarm_Control(ALARM_TYPE_OBSTACLE, false);
                     g_System_Status.is_alarm_active = false;
                 }
-                
-                // 3.2 红外循迹控制
+
+                /* 步骤4.3：红外循迹；脱线则停轮 */
                 int tracking_status = EnvCar_Tracking_Control();
                 if (tracking_status == 0) {
                     g_System_Status.current_state = ENVCAR_STATE_TRACKING;
                 } else {
-                    // 脱线处理
                     TB6612_Stop();
                 }
             }
             break;
-            
+        }
+
         case ENVCAR_MODE_MANUAL:
-            // 手动模式：等待远程控制指令
+            /* 步骤4M：手动模式仅更新状态，速度由无线/串口指令设置 */
             g_System_Status.current_state = ENVCAR_STATE_MANUAL_CTRL;
-            // 指令解析在无线通讯任务中处理
             break;
-            
+
         case ENVCAR_MODE_STOP:
-            // 停止模式
+            /* 步骤4S：停止模式 → 空闲 + 电机停 */
             g_System_Status.current_state = ENVCAR_STATE_IDLE;
             TB6612_Stop();
             break;
-            
+
         default:
             break;
     }
-    
-    // 4. OLED显示更新
+
+    /* 步骤4.9：正常状态指示灯——无报警时常亮绿灯 */
+    if (!g_System_Status.is_alarm_active &&
+        g_System_Status.alarm_type == ALARM_TYPE_NONE) {
+        Red_TurnOff();
+        Blue_TurnOff();
+        Green_TurnOn();
+    }
+
+    /* 步骤5：OLED 内容刷新（当前多为占位） */
     EnvCar_OLED_Display_Update();
-    
-    // 5. 无线通讯数据上传
+
+    /* 步骤6：无线模块数据上传（占位） */
     EnvCar_Wireless_Upload_Data();
-    
-    // 6. 无线通讯指令解析
+
+    /* 步骤7：无线模块指令解析（占位） */
     EnvCar_Wireless_Parse_Command();
 
-    // 7. USART2 周期状态帧（气体 / 障碍 / 警报 / 小车状态）
+    /* 步骤8：USART2 周期上报 $STS（内部 300ms 节流） */
     EnvCar_StatusUplinkOnce();
 }
 
 /**
  * @brief 传感器数据采集任务
+ * @note 顺序：五路红外→三路逻辑 → 超声波（节流）→ MQ-2 ADC/PPM 滤波。
  */
 void EnvCar_Sensor_Update(void)
 {
+    /* 步骤1：五路红外采样并合成左/中/右三路循迹逻辑量 */
     LineTrack_ApplyToLogic(&g_Sensor_Data.ir_left, &g_Sensor_Data.ir_center, &g_Sensor_Data.ir_right);
 
+    /* 步骤2：仅一路超声波 — 周期调用 ultrasonic_task1(Trig1) 并读路1距离；路2 固定为 0 */
     {
-        static uint32_t s_ir_log_tick;
-        if ((HAL_GetTick() - s_ir_log_tick) >= 500U) {
-            s_ir_log_tick = HAL_GetTick();
-            // LOG_TEST("IR raw=0x%02X LCR=%u%u%u\r\n",
-            //          (unsigned)LineTrack_ReadRaw5(),
-            //          (unsigned)g_Sensor_Data.ir_left,
-            //          (unsigned)g_Sensor_Data.ir_center,
-            //          (unsigned)g_Sensor_Data.ir_right);
+        static uint32_t s_us_last_ms;
+        uint32_t now = HAL_GetTick();
+        if ((now - s_us_last_ms) >= ENVCAR_ULTRASONIC_PERIOD_MS) {
+            s_us_last_ms = now;
+            ultrasonic_task1();
+            g_Sensor_Data.ultrasonic1_distance_cm = Ultrasonic_Get_Distance_Cm_1();
+            g_Sensor_Data.ultrasonic2_distance_cm = 0U;
         }
     }
 
-    // 读取超声波距离
-    // TODO: 缺少获取超声波距离数据的接口
-    // 当前ultrasonic.h只有触发函数，没有读取距离的接口
-    // g_Sensor_Data.ultrasonic1_distance_cm = Ultrasonic_Get_Distance_1();
-    // g_Sensor_Data.ultrasonic2_distance_cm = Ultrasonic_Get_Distance_2();
-    
-    /* MQ-2：ADC 原始值 + 粗略 PPM（R0 为经验常数，标定后更准） */
+    /* 步骤3：MQ-2 — ADC 原始值、换算 PPM、一阶低通后写入全局浓度供报警与上报 */
     {
         uint32_t raw = MQ2_ReadRaw();
         g_Sensor_Data.gas_adc_value = raw;
-        g_Sensor_Data.gas_concentration_ppm = MQ2ConvertPPM(raw);
-    }
-    {
-        static uint32_t s_mq2_log_tick;
-        if ((HAL_GetTick() - s_mq2_log_tick) >= 1000U) {
-            s_mq2_log_tick = HAL_GetTick();
-            // LOG_TEST("MQ2 ADC=%lu PPM=%.2f\r\n",
-            //          (unsigned long)g_Sensor_Data.gas_adc_value,
-            //          (double)g_Sensor_Data.gas_concentration_ppm);
+        float ppm_raw = MQ2ConvertPPM(raw);
+        static uint8_t s_gas_filt_inited;
+        static float s_gas_ppm_filt;
+        if (s_gas_filt_inited == 0U) {
+            s_gas_ppm_filt = ppm_raw;
+            s_gas_filt_inited = 1U;
+        } else {
+            s_gas_ppm_filt = (ENVCAR_GAS_PPM_FILTER_ALPHA * ppm_raw) +
+                             ((1.0f - ENVCAR_GAS_PPM_FILTER_ALPHA) * s_gas_ppm_filt);
         }
+        g_Sensor_Data.gas_concentration_ppm = s_gas_ppm_filt;
     }
 
-    // 读取环境数据（可选）
+    /* 步骤4（可选）：温湿度等环境量，接入驱动后在此更新 */
     // TODO: 缺少AHT30温湿度传感器接口
     // g_Sensor_Data.temperature = AHT30_Get_Temperature();
     // g_Sensor_Data.humidity = AHT30_Get_Humidity();
@@ -430,13 +576,15 @@ void EnvCar_Sensor_Update(void)
 
 /**
  * @brief 红外循迹控制逻辑
+ * @return 0 正常循迹；-1 三路均未见线（脱线）
  */
 int EnvCar_Tracking_Control(void)
 {
+    /* 步骤1：默认左右等速前进 */
     int16_t left_speed = g_EnvCar_Config.tracking_speed_base;
     int16_t right_speed = g_EnvCar_Config.tracking_speed_base;
 
-    /* 三路逻辑由五路 Gay1|Gay2 / Gay3 / Gay4|Gay5 合成，见 LineTrack_ApplyToLogic */
+    /* 步骤2：按中/左/右传感器状态差速修正（三路由五路合成，见 LineTrack_ApplyToLogic） */
     if (g_Sensor_Data.ir_center) {
         left_speed = g_EnvCar_Config.tracking_speed_base;
         right_speed = g_EnvCar_Config.tracking_speed_base;
@@ -447,164 +595,164 @@ int EnvCar_Tracking_Control(void)
         left_speed = g_EnvCar_Config.tracking_speed_base;
         right_speed = (int16_t)(g_EnvCar_Config.tracking_speed_base / 2);
     } else if (!g_Sensor_Data.ir_left && !g_Sensor_Data.ir_center && !g_Sensor_Data.ir_right) {
+        /* 步骤3：完全脱线 → 停车并上报脱线 */
         TB6612_Stop();
         return -1;
     }
 
+    /* 步骤4：输出左右轮 PWM 占空对应速度 */
     TB6612_SetSpeed((int)left_speed, (int)right_speed);
     return 0;
 }
 
 /**
  * @brief 超声波避障检测与处理
+ * @return 1 判定应避障停车；0 可继续行驶
  */
 int EnvCar_Obstacle_Detect_Handle(void)
 {
+    /* 步骤1：功能关闭则始终视为无障碍 */
     if (!g_EnvCar_Config.obstacle_cfg.enable) {
-        return 0;  // 避障功能未使能
-    }
-    
-    // TODO: 缺少读取超声波距离的接口
-    // 以下为逻辑框架（占位）
-    
-    /*
-    // 获取两个超声波传感器的最小距离
-    uint16_t min_distance = g_Sensor_Data.ultrasonic1_distance_cm;
-    if (g_Sensor_Data.ultrasonic2_distance_cm < min_distance) {
-        min_distance = g_Sensor_Data.ultrasonic2_distance_cm;
-    }
-    
-    // 距离判断
-    if (min_distance < g_EnvCar_Config.obstacle_cfg.threshold_distance_cm) {
-        // 检测到障碍物，距离过近
-        return 1;
-    } else if (min_distance > g_EnvCar_Config.obstacle_cfg.safe_distance_cm) {
-        // 障碍物移除，距离安全
         return 0;
-    } else {
-        // 距离在阈值和安全距离之间，保持当前状态
-        return g_System_Status.alarm_type == ALARM_TYPE_OBSTACLE ? 1 : 0;
     }
-    */
-    
-    return 0;  // 当前缺失接口，暂时返回无障碍物
+
+    /* 步骤2：取有效最近距离（单路时即 US1）；为 0 表示暂无测距结果，不报障 */
+    uint16_t min_cm = EnvCar_MinUltrasonicCm();
+    if (min_cm == 0U) {
+        return 0;
+    }
+
+    uint16_t th = g_EnvCar_Config.obstacle_cfg.threshold_distance_cm;
+    uint16_t safe = g_EnvCar_Config.obstacle_cfg.safe_distance_cm;
+
+    /* 步骤3：小于触发阈值 → 报障 */
+    if (min_cm < th) {
+        return 1;
+    }
+    /* 步骤4：大于安全距离 → 解除 */
+    if (min_cm > th) {
+        return 0;
+    }
+    /* 步骤5：滞回区 — 已处于障碍报警则保持 1，否则 0，避免边界抖动 */
+    return (g_System_Status.alarm_type == ALARM_TYPE_OBSTACLE) ? 1 : 0;
 }
 
 /**
- * @brief 气体浓度监测与报警处理
+ * @brief 气体浓度监测与报警处理（连续采样去抖）
+ * @return 1 当前应视为气体报警态；0 安全
  */
 int EnvCar_Gas_Monitor_Handle(void)
 {
+    /* 步骤1：气体监测关闭时复位内部去抖状态并返回安全 */
     if (!g_EnvCar_Config.gas_cfg.enable) {
-        return 0;  // 气体监测功能未使能
+        s_gas_trip_cnt = 0;
+        s_gas_clear_cnt = 0;
+        s_gas_debounced_active = 0U;
+        s_gas_debounced_kind = ALARM_TYPE_NONE;
+        return 0;
     }
-    
-    // TODO: 缺少读取气体浓度的接口
-    // 以下为逻辑框架（占位）
-    
-    /*
-    float gas_ppm = g_Sensor_Data.gas_concentration_ppm;
-    
-    // 检查上限
-    if (gas_ppm > g_EnvCar_Config.gas_cfg.gas_threshold_high_ppm) {
-        return 1;  // 浓度超上限
-    }
-    
-    // 检查下限（可选）
-    if (g_EnvCar_Config.gas_cfg.enable_low_alarm) {
-        if (gas_ppm < g_EnvCar_Config.gas_cfg.gas_threshold_low_ppm) {
-            return 1;  // 浓度低于下限
+
+    /* 步骤2：用滤波后 PPM 与配置比较，得到瞬时越上限/下限 */
+    float ppm = g_Sensor_Data.gas_concentration_ppm;
+    const GasMonitor_Config_t *cfg = &g_EnvCar_Config.gas_cfg;
+    int instant_high = (ppm > cfg->gas_threshold_high_ppm) ? 1 : 0;
+    int instant_low = (cfg->enable_low_alarm && ppm < cfg->gas_threshold_low_ppm) ? 1 : 0;
+    int instant = (instant_high || instant_low) ? 1 : 0;
+
+    /* 步骤3：瞬时异常则累加 trip 计数、清零 clear；瞬时正常则相反 */
+    if (instant != 0) {
+        s_gas_clear_cnt = 0U;
+        if (s_gas_trip_cnt < 255U) {
+            s_gas_trip_cnt++;
+        }
+    } else {
+        s_gas_trip_cnt = 0U;
+        if (s_gas_clear_cnt < 255U) {
+            s_gas_clear_cnt++;
         }
     }
-    
-    // 浓度恢复正常
-    if (g_System_Status.alarm_type == ALARM_TYPE_GAS_HIGH) {
-        // 停止报警，恢复运行
-        EnvCar_Alarm_Control(ALARM_TYPE_GAS_HIGH, false);
-        g_System_Status.is_alarm_active = false;
+
+    /* 步骤4：已处于去抖报警态时，连续 M 次正常才解除 */
+    if (s_gas_debounced_active != 0U) {
+        if (s_gas_clear_cnt >= ENVCAR_GAS_CLEAR_COUNT) {
+            s_gas_debounced_active = 0U;
+            s_gas_debounced_kind = ALARM_TYPE_NONE;
+        }
+    } else {
+        /* 步骤5：未报警时，连续 N 次瞬时异常才确认报警并记录高/低类型 */
+        if (s_gas_trip_cnt >= ENVCAR_GAS_TRIP_COUNT) {
+            s_gas_debounced_active = 1U;
+            s_gas_debounced_kind = (instant_high != 0) ? ALARM_TYPE_GAS_HIGH : ALARM_TYPE_GAS_LOW;
+        }
     }
-    
-    return 0;  // 浓度正常
-    */
-    
-    return 0;  // 当前缺失接口，暂时返回正常
+
+    return (s_gas_debounced_active != 0U) ? 1 : 0;
 }
 
 /**
  * @brief OLED显示更新任务
+ * @note 每 1s 翻页，循环显示：系统状态、气体数据、超声波数据。
  */
 void EnvCar_OLED_Display_Update(void)
 {
-    // TODO: 缺少完整的OLED初始化流程
-    // 以下为逻辑框架（占位）
-    
-    /*
-    static uint32_t last_update_tick = 0;
+    static uint32_t s_last_update_tick;
     uint32_t current_tick = HAL_GetTick();
-    
-    // 每1秒切换显示页面
-    if (current_tick - last_update_tick >= 1000) {
-        last_update_tick = current_tick;
-        s_display_page = (s_display_page + 1) % 3;  // 3个页面循环
-        
-        OLED_Clear(&s_oled_handle);
-        
-        switch (s_display_page) {
-            case 0:
-                // 页面0: 系统状态
-                OLED_ShowString(&s_oled_handle, 0, 0, "State:", 16);
-                switch (g_System_Status.current_state) {
-                    case ENVCAR_STATE_IDLE:
-                        OLED_ShowString(&s_oled_handle, 50, 0, "IDLE", 16);
-                        break;
-                    case ENVCAR_STATE_TRACKING:
-                        OLED_ShowString(&s_oled_handle, 50, 0, "TRACK", 16);
-                        break;
-                    case ENVCAR_STATE_OBSTACLE_ALARM:
-                        OLED_ShowString(&s_oled_handle, 50, 0, "OBST!", 16);
-                        break;
-                    case ENVCAR_STATE_GAS_ALARM:
-                        OLED_ShowString(&s_oled_handle, 50, 0, "GAS!", 16);
-                        break;
-                    case ENVCAR_STATE_MANUAL_CTRL:
-                        OLED_ShowString(&s_oled_handle, 50, 0, "MANU", 16);
-                        break;
-                    default:
-                        OLED_ShowString(&s_oled_handle, 50, 0, "ERR", 16);
-                        break;
-                }
-                
-                OLED_ShowString(&s_oled_handle, 0, 2, "Time:", 16);
-                OLED_ShowNum(&s_oled_handle, 50, 2, g_System_Status.system_run_time_s, 6);
-                OLED_ShowString(&s_oled_handle, 110, 2, "s", 16);
-                break;
-                
-            case 1:
-                // 页面1: 气体浓度
-                OLED_ShowString(&s_oled_handle, 0, 0, "Gas:", 16);
-                // TODO: 显示浮点数需要sprintf转换
-                char gas_str[16];
-                sprintf(gas_str, "%.1f", g_Sensor_Data.gas_concentration_ppm);
-                OLED_ShowString(&s_oled_handle, 0, 2, gas_str, 16);
-                OLED_ShowString(&s_oled_handle, 70, 2, "ppm", 16);
-                break;
-                
-            case 2:
-                // 页面2: 超声波距离
-                OLED_ShowString(&s_oled_handle, 0, 0, "Dist1:", 16);
-                OLED_ShowNum(&s_oled_handle, 60, 0, g_Sensor_Data.ultrasonic1_distance_cm, 3);
-                OLED_ShowString(&s_oled_handle, 100, 0, "cm", 16);
-                
-                OLED_ShowString(&s_oled_handle, 0, 2, "Dist2:", 16);
-                OLED_ShowNum(&s_oled_handle, 60, 2, g_Sensor_Data.ultrasonic2_distance_cm, 3);
-                OLED_ShowString(&s_oled_handle, 100, 2, "cm", 16);
-                break;
-                
-            default:
-                break;
-        }
+    char line[24];
+    const char *state_text = "ERR";
+
+    /* 步骤1：1 秒节流刷新，避免频繁刷屏 */
+    if ((current_tick - s_last_update_tick) < 1000U) {
+        return;
     }
-    */
+    s_last_update_tick = current_tick;
+
+    /* 步骤2：翻页（0~2 循环） */
+    s_display_page = (uint8_t)((s_display_page + 1U) % 3U);
+
+    /* 步骤3：清屏后按页绘制 */
+    (void)OLED_Clear(&s_oled_handle);
+    switch (s_display_page) {
+        case 0:
+            /* 页面0：运行状态 + 报警 + 运行时间 */
+            switch (g_System_Status.current_state) {
+                case ENVCAR_STATE_IDLE:          state_text = "IDLE";  break;
+                case ENVCAR_STATE_TRACKING:      state_text = "TRACK"; break;
+                case ENVCAR_STATE_OBSTACLE_ALARM:state_text = "OBST";  break;
+                case ENVCAR_STATE_GAS_ALARM:     state_text = "GAS";   break;
+                case ENVCAR_STATE_MANUAL_CTRL:   state_text = "MANU";  break;
+                default:                         state_text = "ERR";   break;
+            }
+            (void)OLED_ShowString(&s_oled_handle, 0, 0, "State:", 16);
+            (void)OLED_ShowString(&s_oled_handle, 48, 0, state_text, 16);
+            (void)snprintf(line, sizeof(line), "Alm:%u", (unsigned)g_System_Status.alarm_type);
+            (void)OLED_ShowString(&s_oled_handle, 0, 2, line, 16);
+            (void)snprintf(line, sizeof(line), "T:%lus", (unsigned long)g_System_Status.system_run_time_s);
+            (void)OLED_ShowString(&s_oled_handle, 0, 4, line, 16);
+            break;
+
+        case 1:
+            /* 页面1：气体传感器数据 */
+            (void)OLED_ShowString(&s_oled_handle, 0, 0, "Gas ppm:", 16);
+            (void)snprintf(line, sizeof(line), "%.1f", (double)g_Sensor_Data.gas_concentration_ppm);
+            (void)OLED_ShowString(&s_oled_handle, 0, 2, line, 16);
+            (void)snprintf(line, sizeof(line), "ADC:%lu", (unsigned long)g_Sensor_Data.gas_adc_value);
+            (void)OLED_ShowString(&s_oled_handle, 0, 4, line, 16);
+            break;
+
+        case 2:
+        default:
+            /* 页面2：当前关键传感器（超声 + 红外） */
+            (void)snprintf(line, sizeof(line), "US1:%ucm",
+                           (unsigned)g_Sensor_Data.ultrasonic1_distance_cm);
+            (void)OLED_ShowString(&s_oled_handle, 0, 0, line, 16);
+            (void)snprintf(line, sizeof(line), "IR:%u%u%u",
+                           (unsigned)g_Sensor_Data.ir_left,
+                           (unsigned)g_Sensor_Data.ir_center,
+                           (unsigned)g_Sensor_Data.ir_right);
+            (void)OLED_ShowString(&s_oled_handle, 0, 2, line, 16);
+            (void)OLED_ShowString(&s_oled_handle, 0, 4, "US2:N/A", 16);
+            break;
+    }
 }
 
 /**
@@ -613,31 +761,33 @@ void EnvCar_OLED_Display_Update(void)
 void EnvCar_Alarm_Control(Alarm_Type_Enum alarm_type, bool enable)
 {
     if (enable) {
-        // 启动报警
+        /* 步骤1：按报警类型启动对应声光（勿在中断里调用） */
         switch (alarm_type) {
             case ALARM_TYPE_OBSTACLE:
-                // 障碍物报警：蓝灯闪烁 + 蜂鸣器1
                 Blue_Twinkle(3);
                 Beep1_Alarm(3);
                 break;
-                
+
             case ALARM_TYPE_GAS_HIGH:
-                // 气体报警：红灯闪烁 + 蜂鸣器2（长鸣）
                 Red_TurnOn();
                 Beep2_TurnOn();
                 break;
-                
+
+            case ALARM_TYPE_GAS_LOW:
+                Red_TurnOn();
+                Beep2_TurnOn();
+                break;
+
             case ALARM_TYPE_SYSTEM_ERROR:
-                // 系统错误：红蓝交替闪烁
                 Red_Twinkle(5);
                 Blue_Twinkle(5);
                 break;
-                
+
             default:
                 break;
         }
     } else {
-        // 停止报警
+        /* 步骤2：关闭报警 — 统一关断灯与蜂鸣器 */
         Red_TurnOff();
         Green_TurnOff();
         Blue_TurnOff();
@@ -648,12 +798,14 @@ void EnvCar_Alarm_Control(Alarm_Type_Enum alarm_type, bool enable)
 
 /**
  * @brief 无线通讯数据上传任务
+ * @note 占位：周期到达 → 组包（JSON 等）→ JC278A_Send_Data。
  */
 void EnvCar_Wireless_Upload_Data(void)
 {
-    // TODO: 缺少JC278A数据发送接口的完整调用示例
-    // 以下为逻辑框架（占位）
-    
+    /* 步骤1（占位）：判断是否到达上传周期 */
+    /* 步骤2（占位）：填充传感器与状态字段到缓冲 */
+    /* 步骤3（占位）：调用模块发送接口 */
+
     /*
     static uint32_t last_upload_tick = 0;
     uint32_t current_tick = HAL_GetTick();
@@ -681,12 +833,14 @@ void EnvCar_Wireless_Upload_Data(void)
 
 /**
  * @brief 无线通讯指令解析任务
+ * @note 占位：非阻塞收 → 按关键字解析 → 调 EnvCar_Set_Mode / Manual_Control 等。
  */
 void EnvCar_Wireless_Parse_Command(void)
 {
-    // TODO: 缺少JC278A接收数据的完整调用示例和协议解析
-    // 以下为逻辑框架（占位）
-    
+    /* 步骤1（占位）：JC278A_Receive_Data 读入缓冲 */
+    /* 步骤2（占位）：按行或前缀解析 MODE/SPEED/DIST/GAS/STOP 等 */
+    /* 步骤3（占位）：调用应用层 API 生效 */
+
     /*
     uint8_t rx_buffer[128];
     uint16_t rx_length = sizeof(rx_buffer);
@@ -736,8 +890,10 @@ void EnvCar_Wireless_Parse_Command(void)
  */
 void EnvCar_Set_Mode(EnvCar_Mode_Enum mode)
 {
+    /* 步骤1：保存目标模式 */
     g_EnvCar_Config.mode = mode;
-    
+
+    /* 步骤2：切入停止模式时立即停电机 */
     if (mode == ENVCAR_MODE_STOP) {
         TB6612_Stop();
     }
@@ -748,6 +904,7 @@ void EnvCar_Set_Mode(EnvCar_Mode_Enum mode)
  */
 void EnvCar_Emergency_Stop(void)
 {
+    /* 步骤1：双轮驱动置零 */
     TB6612_Stop();
 }
 
@@ -756,6 +913,7 @@ void EnvCar_Emergency_Stop(void)
  */
 void EnvCar_Manual_Control(int16_t left_speed, int16_t right_speed)
 {
+    /* 步骤1：仅手动模式下接受速度指令 */
     if (g_EnvCar_Config.mode == ENVCAR_MODE_MANUAL) {
         TB6612_SetSpeed(left_speed, right_speed);
     }

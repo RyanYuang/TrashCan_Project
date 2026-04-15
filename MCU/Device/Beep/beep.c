@@ -12,7 +12,7 @@
  */
 void Beep1_TurnOn(void)
 {
-	HAL_GPIO_WritePin(BEEPA_GPIO_PORT, BEEPA_GPIO_PIN, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(BEEPA_GPIO_PORT, BEEPA_GPIO_PIN, GPIO_PIN_RESET);
 }
 
 
@@ -23,7 +23,7 @@ void Beep1_TurnOn(void)
  */
 void Beep1_TurnOff(void)
 {
-	HAL_GPIO_WritePin(BEEPA_GPIO_PORT, BEEPA_GPIO_PIN, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(BEEPA_GPIO_PORT, BEEPA_GPIO_PIN, GPIO_PIN_SET);
 }
 
 /**
@@ -33,6 +33,7 @@ void Beep1_TurnOff(void)
  */
 void Beep1_Alarm(unsigned char count)
 {
+	/* 低电平响：先关，再按次拉低 */
 	HAL_GPIO_WritePin(BEEPA_GPIO_PORT, BEEPA_GPIO_PIN, GPIO_PIN_SET);
 
 	if(count >= 10)
@@ -79,7 +80,8 @@ void Beep2_TurnOff(void)
  */
 void Beep2_Alarm(unsigned char count)
 {
-	HAL_GPIO_WritePin(BEEPB_GPIO_PORT, BEEPB_GPIO_PIN, GPIO_PIN_RESET);
+	/* 低电平响，与 Beep1_Alarm 相同节拍 */
+	HAL_GPIO_WritePin(BEEPB_GPIO_PORT, BEEPB_GPIO_PIN, GPIO_PIN_SET);
 
 	if(count >= 10)
 	{
@@ -88,11 +90,11 @@ void Beep2_Alarm(unsigned char count)
 
 	for(int i = 0; i < count; i++)
 	{
-		HAL_GPIO_WritePin(BEEPB_GPIO_PORT, BEEPB_GPIO_PIN, GPIO_PIN_SET);
-		HAL_Delay(100);
 		HAL_GPIO_WritePin(BEEPB_GPIO_PORT, BEEPB_GPIO_PIN, GPIO_PIN_RESET);
+		HAL_Delay(100);
+		HAL_GPIO_WritePin(BEEPB_GPIO_PORT, BEEPB_GPIO_PIN, GPIO_PIN_SET);
 		HAL_Delay(100);
 	}
 
-	HAL_GPIO_WritePin(BEEPB_GPIO_PORT, BEEPB_GPIO_PIN, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(BEEPB_GPIO_PORT, BEEPB_GPIO_PIN, GPIO_PIN_SET);
 }

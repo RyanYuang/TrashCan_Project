@@ -65,8 +65,8 @@ void Error_Handler(void);
 #define Red_GPIO_Port GPIOC
 #define Blue_Pin GPIO_PIN_3
 #define Blue_GPIO_Port GPIOC
-#define Green_Pin GPIO_PIN_1
-#define Green_GPIO_Port GPIOA
+#define Green_Pin GPIO_PIN_2
+#define Green_GPIO_Port GPIOC
 #define beep1_Pin GPIO_PIN_4
 #define beep1_GPIO_Port GPIOC
 #define Trig2_Pin GPIO_PIN_7

@@ -50,16 +50,15 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 
 /**
  * @brief  启动 TIM8 基时与输入捕获通道，供超声波测距使用
- * @note   开启 CH3/CH4（传感器1回波）及 CH1/CH2（传感器2，依硬件接线）
+ * @note   当前工程仅接一路 HC-SR04：只用 CH3/CH4 测回波（与 ultrasonic_task1 / Trig1 对应）。
+ *         第二路需 CubeMX 配置 TIM8 CH1/CH2 与 Echo2 引脚后，再在 init 里增加对应 Start。
  * @retval 无
  */
 void ultrasonic_init(void)
 {
-   HAL_TIM_Base_Start(&htim8);
-   HAL_TIM_IC_Start(&htim8, TIM_CHANNEL_3);
-   HAL_TIM_IC_Start_IT(&htim8, TIM_CHANNEL_4);
-   HAL_TIM_IC_Start(&htim8, TIM_CHANNEL_1);
-   HAL_TIM_IC_Start_IT(&htim8, TIM_CHANNEL_2);
+	HAL_TIM_Base_Start(&htim8);
+	HAL_TIM_IC_Start(&htim8, TIM_CHANNEL_3);
+	HAL_TIM_IC_Start_IT(&htim8, TIM_CHANNEL_4);
 }
 
 /**
