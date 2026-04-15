@@ -35,6 +35,9 @@
 #define ENVCAR_GAS_CLEAR_COUNT      4U
 /** 周期性传感器/状态 LOG 间隔（ms），依赖 PLATFORM_LOG_TEST_ENABLE */
 #define ENVCAR_APP_SENSOR_LOG_PERIOD_MS 10U
+/** OLED 循迹测试模式：TRACK 状态下持续显示循迹参数与速度 */
+#define ENVCAR_OLED_TRACK_TEST_MODE 1U
+#define ENVCAR_OLED_TRACK_REFRESH_MS 100U
 
 /* ==================== 全局变量定义 ==================== */
 
@@ -92,6 +95,12 @@ static volatile uint8_t s_proto_cmd_pending;
 static volatile ControlCommand_t s_proto_cmd_latest = CMD_INVALID;
 static uint16_t s_manual_speed_abs = 300U;
 static ControlCommand_t s_manual_motion_cmd = CMD_STOP;
+static uint8_t s_track_dbg_raw5;
+static int16_t s_track_dbg_left_speed;
+static int16_t s_track_dbg_right_speed;
+static int16_t s_track_dbg_delta;
+static int8_t s_track_dbg_wsum;
+static uint8_t s_track_dbg_count;
 
 static void EnvCar_ApplyManualMotion(ControlCommand_t cmd)
 {
@@ -654,27 +663,46 @@ void EnvCar_Sensor_Update(void)
  */
 int EnvCar_Tracking_Control(void)
 {
-    /* 步骤1：默认左右等速前进 */
-    int16_t left_speed = g_EnvCar_Config.tracking_speed_base;
-    int16_t right_speed = g_EnvCar_Config.tracking_speed_base;
+    int16_t base = g_EnvCar_Config.tracking_speed_base;
+    int16_t left_speed = base;
+    int16_t right_speed = base;
+    uint8_t raw = LineTrack_ReadRaw5();
 
-    /* 步骤2：按中/左/右传感器状态差速修正（三路由五路合成，见 LineTrack_ApplyToLogic） */
-    if (g_Sensor_Data.ir_center) {
-        left_speed = g_EnvCar_Config.tracking_speed_base;
-        right_speed = g_EnvCar_Config.tracking_speed_base;
-    } else if (g_Sensor_Data.ir_left && !g_Sensor_Data.ir_center) {
-        left_speed = (int16_t)(g_EnvCar_Config.tracking_speed_base / 2);
-        right_speed = g_EnvCar_Config.tracking_speed_base;
-    } else if (g_Sensor_Data.ir_right && !g_Sensor_Data.ir_center) {
-        left_speed = g_EnvCar_Config.tracking_speed_base;
-        right_speed = (int16_t)(g_EnvCar_Config.tracking_speed_base / 2);
-    } else if (!g_Sensor_Data.ir_left && !g_Sensor_Data.ir_center && !g_Sensor_Data.ir_right) {
-        /* 步骤3：完全脱线 → 停车并上报脱线 */
+    /* 五路权重误差：左负右正（Gay1..Gay5 => -2,-1,0,+1,+2） */
+    int8_t w_sum = 0;
+    uint8_t n = 0;
+    if (raw & (1U << 0)) { w_sum += 3; n++; }
+    if (raw & (1U << 1)) { w_sum += 2; n++; }
+    if (raw & (1U << 2)) { w_sum += 0;  n++; }
+    if (raw & (1U << 3)) { w_sum += -2;  n++; }
+    if (raw & (1U << 4)) { w_sum += -3;  n++; }
+
+    if (n == 0U) {
+        s_track_dbg_raw5 = raw;
+        s_track_dbg_wsum = w_sum;
+        s_track_dbg_count = n;
+        s_track_dbg_delta = 0;
+        s_track_dbg_left_speed = 0;
+        s_track_dbg_right_speed = 0;
         TB6612_Stop();
         return -1;
     }
 
-    /* 步骤4：输出左右轮 PWM 占空对应速度 */
+    /* 平均误差 e ∈ [-2,2]，按差速比例修正 */
+    float e = (float)w_sum / (float)n;
+    float k = 1.0f; /* 经验比例，值越大转向越激进 */
+    int16_t delta = (int16_t)(k * e * (float)base);
+
+    left_speed = (int16_t)(base + delta);
+    right_speed = (int16_t)(base - delta);
+
+    s_track_dbg_raw5 = raw;
+    s_track_dbg_wsum = w_sum;
+    s_track_dbg_count = n;
+    s_track_dbg_delta = delta;
+    s_track_dbg_left_speed = left_speed;
+    s_track_dbg_right_speed = right_speed;
+
     TB6612_SetSpeed((int)left_speed, (int)right_speed);
     return 0;
 }
@@ -704,7 +732,7 @@ int EnvCar_Obstacle_Detect_Handle(void)
         return 1;
     }
     /* 步骤4：大于安全距离 → 解除 */
-    if (min_cm > th) {
+    if (min_cm > safe) {
         return 0;
     }
     /* 步骤5：滞回区 — 已处于障碍报警则保持 1，否则 0，避免边界抖动 */
@@ -770,9 +798,41 @@ int EnvCar_Gas_Monitor_Handle(void)
 void EnvCar_OLED_Display_Update(void)
 {
     static uint32_t s_last_update_tick;
+    static uint8_t s_prev_track_page;
     uint32_t current_tick = HAL_GetTick();
     char line[24];
     const char *state_text = "ERR";
+
+#if ENVCAR_OLED_TRACK_TEST_MODE
+    if (g_EnvCar_Config.mode == ENVCAR_MODE_AUTO &&
+        g_System_Status.current_state == ENVCAR_STATE_TRACKING) {
+        if ((current_tick - s_last_update_tick) < ENVCAR_OLED_TRACK_REFRESH_MS) {
+            return;
+        }
+        s_last_update_tick = current_tick;
+        s_prev_track_page = s_display_page;
+
+        (void)OLED_Clear(&s_oled_handle);
+        (void)OLED_ShowString(&s_oled_handle, 0, 0, "TRK TEST", 16);
+        (void)snprintf(line, sizeof(line), "R:%02X n:%u w:%d",
+                       (unsigned)s_track_dbg_raw5,
+                       (unsigned)s_track_dbg_count,
+                       (int)s_track_dbg_wsum);
+        (void)OLED_ShowString(&s_oled_handle, 0, 2, line, 16);
+        (void)snprintf(line, sizeof(line), "L:%d R:%d",
+                       (int)s_track_dbg_left_speed,
+                       (int)s_track_dbg_right_speed);
+        (void)OLED_ShowString(&s_oled_handle, 0, 4, line, 16);
+        (void)snprintf(line, sizeof(line), "D:%d B:%d",
+                       (int)s_track_dbg_delta,
+                       (int)g_EnvCar_Config.tracking_speed_base);
+        (void)OLED_ShowString(&s_oled_handle, 0, 6, line, 16);
+        return;
+    }
+    if (s_display_page != s_prev_track_page) {
+        s_display_page = s_prev_track_page;
+    }
+#endif
 
     /* 步骤1：1 秒节流刷新，避免频繁刷屏 */
     if ((current_tick - s_last_update_tick) < 1000U) {
