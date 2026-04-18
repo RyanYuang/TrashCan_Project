@@ -44,9 +44,10 @@ void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
+  /* 72MHz/(PSC+1)=100kHz；ARR=99 → 1ms 更新周期，供循迹中断使用 */
   htim3.Init.Prescaler = 720-1;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 2000-1;
+  htim3.Init.Period = 100 - 1;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -222,6 +223,10 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* tim_baseHandle)
   /* USER CODE END TIM3_MspInit 0 */
     /* TIM3 clock enable */
     __HAL_RCC_TIM3_CLK_ENABLE();
+
+    /* TIM3 循迹周期中断：优先级低于串口捕获，避免长时间占用 ISR */
+    HAL_NVIC_SetPriority(TIM3_IRQn, 3, 0);
+    HAL_NVIC_EnableIRQ(TIM3_IRQn);
   /* USER CODE BEGIN TIM3_MspInit 1 */
 
   /* USER CODE END TIM3_MspInit 1 */
@@ -318,6 +323,7 @@ void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef* tim_baseHandle)
 
   /* USER CODE END TIM3_MspDeInit 0 */
     /* Peripheral clock disable */
+    HAL_NVIC_DisableIRQ(TIM3_IRQn);
     __HAL_RCC_TIM3_CLK_DISABLE();
   /* USER CODE BEGIN TIM3_MspDeInit 1 */
 

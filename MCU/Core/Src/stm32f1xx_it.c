@@ -27,6 +27,7 @@
 #include "uart_protocol.h"
 #include "protocol_parser.h"
 #include "usart.h"
+#include "tim.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -95,6 +96,7 @@ void hard_fault_handler_c(unsigned int *hardfault_args)
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_adc1;
+extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim6;
 extern TIM_HandleTypeDef htim8;
 extern DMA_HandleTypeDef hdma_usart2_rx;
@@ -317,6 +319,20 @@ void TIM8_CC_IRQHandler(void)
   /* USER CODE BEGIN TIM8_CC_IRQn 1 */
 
   /* USER CODE END TIM8_CC_IRQn 1 */
+}
+
+/**
+  * @brief This function handles TIM3 global interrupt（循迹 1ms 节拍）.
+  */
+void TIM3_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM3_IRQn 0 */
+
+  /* USER CODE END TIM3_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim3);
+  /* USER CODE BEGIN TIM3_IRQn 1 */
+
+  /* USER CODE END TIM3_IRQn 1 */
 }
 
 /**

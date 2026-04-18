@@ -12,7 +12,7 @@
  *  2   EnvCar_Gas_Monitor_Handle 气体去抖；报警则急停、声光、上报并 return
  *  3   气体恢复分支：关声光、清标志、按模式恢复状态字
  *  4   switch(mode)：自动=超声避障+红外循迹；手动=状态；停止=停车
- *  5~7 OLED（循迹态可开测试页：灰度位+轮速）/ 无线上传 / 无线解析（占位）
+ *  5~7 OLED / 无线上传 / 无线解析（占位）
  *  8   EnvCar_StatusUplinkOnce 周期 $STS
  ******************************************************************************
  */
@@ -21,6 +21,7 @@
 #include "MQ-2.h"
 #include "ultrasonic.h"
 #include "line_track.h"
+#include "tim.h"
 #include "platform_log.h"
 #include "protocol_parser.h"
 #include "uart_protocol.h"
@@ -35,9 +36,10 @@
 #define ENVCAR_GAS_CLEAR_COUNT      4U
 /** 周期性传感器/状态 LOG 间隔（ms），依赖 PLATFORM_LOG_TEST_ENABLE */
 #define ENVCAR_APP_SENSOR_LOG_PERIOD_MS 10U
-/** OLED 循迹测试模式：TRACK 状态下持续显示循迹参数与速度 */
-#define ENVCAR_OLED_TRACK_TEST_MODE 1U
-#define ENVCAR_OLED_TRACK_REFRESH_MS 100U
+/** 1：循迹在 TIM3 周期中断（默认 1ms）中执行；0：在主循环中执行 */
+#ifndef ENVCAR_TRACKING_USE_TIM3_IRQ
+#define ENVCAR_TRACKING_USE_TIM3_IRQ 1
+#endif
 
 /* ==================== 全局变量定义 ==================== */
 
@@ -95,13 +97,6 @@ static volatile uint8_t s_proto_cmd_pending;
 static volatile ControlCommand_t s_proto_cmd_latest = CMD_INVALID;
 static uint16_t s_manual_speed_abs = 300U;
 static ControlCommand_t s_manual_motion_cmd = CMD_STOP;
-static uint8_t s_track_dbg_raw4;
-static int16_t s_track_dbg_left_speed;
-static int16_t s_track_dbg_right_speed;
-static int16_t s_track_dbg_delta;
-static int16_t s_track_dbg_err100;
-static uint8_t s_track_dbg_count;
-
 static void EnvCar_ApplyManualMotion(ControlCommand_t cmd)
 {
     int16_t s = (int16_t)s_manual_speed_abs;
@@ -451,8 +446,16 @@ int EnvCar_App_Init(void)
         return -1;
     }
 
-    /* 步骤9：调试日志提示初始化完成 */
-    LOG_TEST("[EnvCar] App_Init OK (log period %ums)\r\n", (unsigned)ENVCAR_APP_SENSOR_LOG_PERIOD_MS);
+    /* 步骤9：TIM3 循迹节拍（与 MX_TIM3_Init 中 Period 一致，默认约 1ms） */
+#if ENVCAR_TRACKING_USE_TIM3_IRQ
+    if (HAL_TIM_Base_Start_IT(&htim3) != HAL_OK) {
+        return -1;
+    }
+#endif
+
+    /* 步骤10：调试日志提示初始化完成 */
+    LOG_TEST("[EnvCar] App_Init OK (log period %ums) track_irq=%u\r\n",
+             (unsigned)ENVCAR_APP_SENSOR_LOG_PERIOD_MS, (unsigned)ENVCAR_TRACKING_USE_TIM3_IRQ);
 
     return 0;
 }
@@ -566,13 +569,20 @@ void EnvCar_App_Task(void)
                     g_System_Status.is_alarm_active = false;
                 }
 
-                /* 步骤4.3：红外循迹；脱线则停轮 */
-                int tracking_status = EnvCar_Tracking_Control();
-                if (tracking_status == 0) {
-                    g_System_Status.current_state = ENVCAR_STATE_TRACKING;
-                } else {
-                    TB6612_Stop();
+                /* 步骤4.3：红外循迹；脱线停轮在循迹函数内处理 */
+#if ENVCAR_TRACKING_USE_TIM3_IRQ
+                /* 循迹由 TIM3 中断调用 EnvCar_Tracking_Control；此处仅维护状态 */
+                g_System_Status.current_state = ENVCAR_STATE_TRACKING;
+#else
+                {
+                    int tracking_status = EnvCar_Tracking_Control();
+                    if (tracking_status == 0) {
+                        g_System_Status.current_state = ENVCAR_STATE_TRACKING;
+                    } else {
+                        TB6612_Stop();
+                    }
                 }
+#endif
             }
             break;
         }
@@ -678,12 +688,6 @@ int EnvCar_Tracking_Control(void)
     uint8_t n = (uint8_t)((g1 ? 1U : 0U) + (g2 ? 1U : 0U) + (g3 ? 1U : 0U) + (g4 ? 1U : 0U));
 
     if (n == 0U) {
-        s_track_dbg_raw4 = raw;
-        s_track_dbg_err100 = 0;
-        s_track_dbg_count = 0;
-        s_track_dbg_delta = 0;
-        s_track_dbg_left_speed = 0;
-        s_track_dbg_right_speed = 0;
         TB6612_Stop();
         return -1;
     }
@@ -694,7 +698,7 @@ int EnvCar_Tracking_Control(void)
      */
     int32_t e100 = 0;
 
-    /* 外侧见线：大幅纠偏（左右对称；系数为原先外侧权重的 2 倍） */
+    /* 外侧见线：大幅纠偏（左右对称；在 ±1000 基础上再减弱 40% → ±600） */
     if (g1) {
         e100 += 1000;
     }
@@ -708,10 +712,10 @@ int EnvCar_Tracking_Control(void)
     /* 中间两路：仅一侧见线时小幅纠偏 */
     if (g2 != g3) {
         if (g2) {
-            e100 += 45;
+            e100 += 300;
         }
         if (g3) {
-            e100 -= 45;
+            e100 -= 300;
         }
     }
 
@@ -735,13 +739,6 @@ int EnvCar_Tracking_Control(void)
 
     left_speed = (int16_t)(base + delta);
     right_speed = (int16_t)(base - delta);
-
-    s_track_dbg_raw4 = raw;
-    s_track_dbg_err100 = (int16_t)e100;
-    s_track_dbg_count = n;
-    s_track_dbg_delta = delta;
-    s_track_dbg_left_speed = left_speed;
-    s_track_dbg_right_speed = right_speed;
 
     TB6612_SetSpeed((int)left_speed, (int)right_speed);
     return 0;
@@ -833,7 +830,7 @@ int EnvCar_Gas_Monitor_Handle(void)
 
 /**
  * @brief OLED显示更新任务
- * @note 默认：状态 + 甲烷 + 障碍物。循迹测试模式见 ENVCAR_OLED_TRACK_TEST_MODE。
+ * @note 状态 + 甲烷浓度 + 障碍物距离，1 秒刷新一次。
  */
 void EnvCar_OLED_Display_Update(void)
 {
@@ -843,70 +840,6 @@ void EnvCar_OLED_Display_Update(void)
     const char *state_text = "ERR";
     uint16_t obs_cm = EnvCar_MinUltrasonicCm();
     const char *obs_text;
-
-#if ENVCAR_OLED_TRACK_TEST_MODE
-    /* 循迹态：快刷显示灰度（空间序 4 位 + 硬件半字节）与左右轮设定速度 */
-    if (g_System_Status.current_state == ENVCAR_STATE_TRACKING) {
-        if ((current_tick - s_last_update_tick) < ENVCAR_OLED_TRACK_REFRESH_MS) {
-            return;
-        }
-        s_last_update_tick = current_tick;
-
-        uint8_t sp = LineTrack_ReadSpatial4();
-        uint8_t hw = LineTrack_ReadRaw4();
-        char s_bits[5];
-        s_bits[0] = (char)('0' + ((sp >> 0) & 1U));
-        s_bits[1] = (char)('0' + ((sp >> 1) & 1U));
-        s_bits[2] = (char)('0' + ((sp >> 2) & 1U));
-        s_bits[3] = (char)('0' + ((sp >> 3) & 1U));
-        s_bits[4] = '\0';
-
-        (void)OLED_Clear(&s_oled_handle);
-        (void)snprintf(line, sizeof(line), "S:%s H:%X n:%u", s_bits, (unsigned)(hw & 0x0FU),
-                       (unsigned)s_track_dbg_count);
-        (void)OLED_ShowString(&s_oled_handle, 0, 0, line, 16);
-        {
-            int ls = (int)s_track_dbg_left_speed;
-            int rs = (int)s_track_dbg_right_speed;
-            if (ls > 999) {
-                ls = 999;
-            }
-            if (ls < -999) {
-                ls = -999;
-            }
-            if (rs > 999) {
-                rs = 999;
-            }
-            if (rs < -999) {
-                rs = -999;
-            }
-            (void)snprintf(line, sizeof(line), "L:%4d R:%4d", ls, rs);
-        }
-        (void)OLED_ShowString(&s_oled_handle, 0, 2, line, 16);
-        {
-            int de = (int)s_track_dbg_err100;
-            if (de > 9999) {
-                de = 9999;
-            }
-            if (de < -9999) {
-                de = -9999;
-            }
-            (void)snprintf(line, sizeof(line), "d:%4d e:%5d", (int)s_track_dbg_delta, de);
-        }
-        (void)OLED_ShowString(&s_oled_handle, 0, 4, line, 16);
-        if (obs_cm == 0U) {
-            obs_text = "N/A";
-        } else if (g_EnvCar_Config.obstacle_cfg.enable &&
-                   obs_cm < g_EnvCar_Config.obstacle_cfg.threshold_distance_cm) {
-            obs_text = "NEAR";
-        } else {
-            obs_text = "OK";
-        }
-        (void)snprintf(line, sizeof(line), "Ob:%ucm %s", (unsigned)obs_cm, obs_text);
-        (void)OLED_ShowString(&s_oled_handle, 0, 6, line, 16);
-        return;
-    }
-#endif
 
     /* 步骤1：1 秒节流刷新，避免频繁刷屏 */
     if ((current_tick - s_last_update_tick) < 1000U) {
@@ -1107,3 +1040,32 @@ void EnvCar_Manual_Control(int16_t left_speed, int16_t right_speed)
         TB6612_SetSpeed(left_speed, right_speed);
     }
 }
+
+#if ENVCAR_TRACKING_USE_TIM3_IRQ
+/**
+ * @brief TIM 更新中断回调：TIM3 节拍内执行循迹（勿在此写 printf/阻塞）
+ */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim == NULL || htim->Instance != TIM3) {
+        return;
+    }
+
+    if (g_EnvCar_Config.mode != ENVCAR_MODE_AUTO) {
+        return;
+    }
+    if (g_System_Status.current_state == ENVCAR_STATE_GAS_ALARM) {
+        return;
+    }
+    if (g_System_Status.alarm_type == ALARM_TYPE_GAS_HIGH ||
+        g_System_Status.alarm_type == ALARM_TYPE_GAS_LOW) {
+        return;
+    }
+    if (EnvCar_Obstacle_Detect_Handle() != 0) {
+        TB6612_Stop();
+        return;
+    }
+
+    (void)EnvCar_Tracking_Control();
+}
+#endif /* ENVCAR_TRACKING_USE_TIM3_IRQ */

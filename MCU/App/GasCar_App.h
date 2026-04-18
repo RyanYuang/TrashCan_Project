@@ -134,7 +134,7 @@ void EnvCar_App_Task(void);
 void EnvCar_Sensor_Update(void);
 
 /**
- * @brief 红外循迹控制逻辑
+ * @brief 红外循迹控制逻辑（可由主循环或 TIM3 周期中断调用）
  * @return 0: 正常循迹, -1: 脱线
  */
 int EnvCar_Tracking_Control(void);
