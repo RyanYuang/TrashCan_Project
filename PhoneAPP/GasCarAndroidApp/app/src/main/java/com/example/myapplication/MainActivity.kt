@@ -73,10 +73,15 @@ import androidx.compose.ui.unit.dp
 import com.example.myapplication.spp.EnvCarSppProtocol
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import com.example.myapplication.ui.theme.AlarmDanger
 import com.example.myapplication.ui.theme.AlarmSafe
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import java.util.Locale
+
+/** 气体检测阈值（G 段）：2.00～3.00 ppm，步进 0.01（与协议浮点文本一致）。 */
+private fun snapGasThresholdPpm(v: Float): Float =
+    ((v.coerceIn(2f, 3f) * 100f).roundToInt() / 100f)
 
 /** 主界面 Activity：申请蓝牙权限、挂载 Compose 仪表盘并预加载已配对设备。 */
 class MainActivity : ComponentActivity() {
@@ -400,9 +405,9 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
     var carSpeed by remember { mutableStateOf(50f) }
     var obstacleDistance by remember { mutableStateOf(20f) }
     var safeDistance by remember { mutableStateOf(30f) }
-    var gasHigh by remember { mutableStateOf(500f) }
+    var gasHigh by remember { mutableStateOf(2.5f) }
     var useGasLowAlarm by remember { mutableStateOf(false) }
-    var gasLow by remember { mutableStateOf(10f) }
+    var gasLow by remember { mutableStateOf(2f) }
 
     val speedCode = EnvCarSppProtocol.speedPercentToCommandCode(carSpeed.toInt())
     val speedLabel = EnvCarSppProtocol.speedCommandCodeToPercentLabel(speedCode)
@@ -413,18 +418,22 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
             safeDistance = (obstacleDistance + 10f).coerceIn(minSafe, 50f)
         }
     }
-    LaunchedEffect(gasHigh, useGasLowAlarm) {
+    LaunchedEffect(gasHigh, gasLow, useGasLowAlarm) {
         if (!useGasLowAlarm) return@LaunchedEffect
-        val maxLow = (gasHigh - 0.02f).coerceAtLeast(0.02f)
-        if (gasLow > maxLow) gasLow = max(0.01f, maxLow)
+        if (gasHigh <= gasLow + 0.009f) {
+            gasHigh = snapGasThresholdPpm(gasLow + 0.01f)
+        }
+        val maxLow = snapGasThresholdPpm(gasHigh - 0.01f)
+        if (gasLow > maxLow) gasLow = maxLow
+        if (gasLow < 2f) gasLow = 2f
     }
 
     val pushThreshold: () -> Unit = {
         val trig = obstacleDistance.toInt().coerceIn(0, 49)
         val safe = safeDistance.toInt().coerceIn(trig + 1, 50)
-        val high = gasHigh.coerceAtLeast(1f)
+        val high = snapGasThresholdPpm(gasHigh)
         val low = if (useGasLowAlarm) {
-            min(max(gasLow, 0.01f), high - 0.01f)
+            snapGasThresholdPpm(min(max(gasLow, 2f), high - 0.01f))
         } else {
             0f
         }
@@ -597,20 +606,22 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
                 )
                 Slider(
                     value = gasLow,
-                    onValueChange = { gasLow = it },
+                    onValueChange = { gasLow = snapGasThresholdPpm(it) },
                     onValueChangeFinished = pushThreshold,
-                    valueRange = 0.01f..min(gasHigh - 0.02f, 499f).coerceAtLeast(0.02f)
+                    valueRange = 2f..min(gasHigh - 0.01f, 3f).coerceAtLeast(2f)
                 )
             }
             Text(
-                text = "${stringResource(R.string.label_gas_high_ppm)}：${gasHigh.toInt()}",
+                text = "${stringResource(R.string.label_gas_high_ppm)}：${
+                    String.format(Locale.US, "%.2f", gasHigh)
+                }",
                 style = MaterialTheme.typography.bodyLarge
             )
             Slider(
                 value = gasHigh,
-                onValueChange = { gasHigh = it },
+                onValueChange = { gasHigh = snapGasThresholdPpm(it) },
                 onValueChangeFinished = pushThreshold,
-                valueRange = 1f..1000f
+                valueRange = 2f..3f
             )
             thresholdFb?.let { msg ->
                 Spacer(modifier = Modifier.height(10.dp))
