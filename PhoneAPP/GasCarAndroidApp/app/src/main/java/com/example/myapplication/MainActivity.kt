@@ -79,9 +79,9 @@ import com.example.myapplication.ui.theme.AlarmSafe
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import java.util.Locale
 
-/** 气体检测阈值（G 段）：2.00～3.00 ppm，步进 0.01（与协议浮点文本一致）。 */
+/** 气体检测阈值（G 段）：0.00～3.00，步进 0.01；与下位机 `#O...,G%f,%f` 文本精度一致。 */
 private fun snapGasThresholdPpm(v: Float): Float =
-    ((v.coerceIn(2f, 3f) * 100f).roundToInt() / 100f)
+    ((v.coerceIn(0f, 3f) * 100f).roundToInt() / 100f)
 
 /** 主界面 Activity：申请蓝牙权限、挂载 Compose 仪表盘并预加载已配对设备。 */
 class MainActivity : ComponentActivity() {
@@ -405,9 +405,9 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
     var carSpeed by remember { mutableStateOf(50f) }
     var obstacleDistance by remember { mutableStateOf(20f) }
     var safeDistance by remember { mutableStateOf(30f) }
-    var gasHigh by remember { mutableStateOf(2.5f) }
+    var gasHigh by remember { mutableStateOf(1.5f) }
     var useGasLowAlarm by remember { mutableStateOf(false) }
-    var gasLow by remember { mutableStateOf(2f) }
+    var gasLow by remember { mutableStateOf(0.5f) }
 
     val speedCode = EnvCarSppProtocol.speedPercentToCommandCode(carSpeed.toInt())
     val speedLabel = EnvCarSppProtocol.speedCommandCodeToPercentLabel(speedCode)
@@ -425,15 +425,18 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
         }
         val maxLow = snapGasThresholdPpm(gasHigh - 0.01f)
         if (gasLow > maxLow) gasLow = maxLow
-        if (gasLow < 2f) gasLow = 2f
+        if (gasLow < 0f) gasLow = 0f
     }
 
     val pushThreshold: () -> Unit = {
         val trig = obstacleDistance.toInt().coerceIn(0, 49)
         val safe = safeDistance.toInt().coerceIn(trig + 1, 50)
-        val high = snapGasThresholdPpm(gasHigh)
+        var high = snapGasThresholdPpm(gasHigh)
+        if (!useGasLowAlarm && high <= 0f) {
+            high = 0.01f
+        }
         val low = if (useGasLowAlarm) {
-            snapGasThresholdPpm(min(max(gasLow, 2f), high - 0.01f))
+            snapGasThresholdPpm(min(max(gasLow, 0f), high - 0.01f))
         } else {
             0f
         }
@@ -608,7 +611,7 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
                     value = gasLow,
                     onValueChange = { gasLow = snapGasThresholdPpm(it) },
                     onValueChangeFinished = pushThreshold,
-                    valueRange = 2f..min(gasHigh - 0.01f, 3f).coerceAtLeast(2f)
+                    valueRange = 0f..min(gasHigh - 0.01f, 3f).coerceAtLeast(0f)
                 )
             }
             Text(
@@ -621,7 +624,7 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
                 value = gasHigh,
                 onValueChange = { gasHigh = snapGasThresholdPpm(it) },
                 onValueChangeFinished = pushThreshold,
-                valueRange = 2f..3f
+                valueRange = 0f..3f
             )
             thresholdFb?.let { msg ->
                 Spacer(modifier = Modifier.height(10.dp))
