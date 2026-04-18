@@ -166,6 +166,15 @@ class BluetoothController(private val context: Context) {
         _rawReceivedLog.value = rawLog.toString()
     }
 
+    /** 清空原始串口日志，便于重新观察当前会话。 */
+    fun clearRawLog() {
+        rawLog.setLength(0)
+        synchronized(rxLock) {
+            rxLineBuffer.clear()
+        }
+        _rawReceivedLog.value = ""
+    }
+
     /** 发送一行协议载荷（自动追加 CRLF，UTF-8）。 */
     fun sendDownlinkPayload(payload: String) {
         CoroutineScope(Dispatchers.IO).launch {

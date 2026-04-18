@@ -31,6 +31,10 @@ class BluetoothViewModel(application: Application) : AndroidViewModel(applicatio
         bluetoothController.disconnect()
     }
 
+    fun clearRawLog() {
+        bluetoothController.clearRawLog()
+    }
+
     /** 发送 `@0`～`@10` 控制帧（含 `@9` 手动、`@10` 自动循迹，见规范 v1.3）。 */
     fun sendControl(code: Int) {
         bluetoothController.sendDownlinkPayload(EnvCarSppProtocol.buildControlPayload(code))

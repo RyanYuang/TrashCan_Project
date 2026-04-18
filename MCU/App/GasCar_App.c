@@ -12,7 +12,7 @@
  *  2   EnvCar_Gas_Monitor_Handle 气体去抖；报警则急停、声光、上报并 return
  *  3   气体恢复分支：关声光、清标志、按模式恢复状态字
  *  4   switch(mode)：自动=超声避障+红外循迹；手动=状态；停止=停车
- *  5~7 OLED / 无线上传 / 无线解析（占位）
+ *  5~7 OLED（循迹态可开测试页：灰度位+轮速）/ 无线上传 / 无线解析（占位）
  *  8   EnvCar_StatusUplinkOnce 周期 $STS
  ******************************************************************************
  */
@@ -95,11 +95,11 @@ static volatile uint8_t s_proto_cmd_pending;
 static volatile ControlCommand_t s_proto_cmd_latest = CMD_INVALID;
 static uint16_t s_manual_speed_abs = 300U;
 static ControlCommand_t s_manual_motion_cmd = CMD_STOP;
-static uint8_t s_track_dbg_raw5;
+static uint8_t s_track_dbg_raw4;
 static int16_t s_track_dbg_left_speed;
 static int16_t s_track_dbg_right_speed;
 static int16_t s_track_dbg_delta;
-static int8_t s_track_dbg_wsum;
+static int16_t s_track_dbg_err100;
 static uint8_t s_track_dbg_count;
 
 static void EnvCar_ApplyManualMotion(ControlCommand_t cmd)
@@ -204,7 +204,7 @@ static void EnvCar_App_LogPeriodic(void)
              (unsigned)g_Sensor_Data.ir_left,
              (unsigned)g_Sensor_Data.ir_center,
              (unsigned)g_Sensor_Data.ir_right,
-             (unsigned)LineTrack_ReadRaw5());
+             (unsigned)LineTrack_ReadRaw4());
 }
 #endif
 
@@ -619,7 +619,7 @@ void EnvCar_App_Task(void)
  */
 void EnvCar_Sensor_Update(void)
 {
-    /* 步骤1：五路红外采样并合成左/中/右三路循迹逻辑量 */
+    /* 步骤1：四路红外采样并合成左/中/右三路循迹逻辑量 */
     LineTrack_ApplyToLogic(&g_Sensor_Data.ir_left, &g_Sensor_Data.ir_center, &g_Sensor_Data.ir_right);
 
     /* 步骤2：仅一路超声波 — 周期调用 ultrasonic_task1(Trig1) 并读路1距离；路2 固定为 0 */
@@ -658,29 +658,29 @@ void EnvCar_Sensor_Update(void)
 }
 
 /**
- * @brief 红外循迹控制逻辑
- * @return 0 正常循迹；-1 三路均未见线（脱线）
+ * @brief 红外循迹控制逻辑（四路车体坐标：外左、左中、右中、外右，由 LineTrack_ReadSpatial4 映射 Gay4..Gay1）
+ * @note 高电平=在黑线上。外侧重判大幅纠偏；中间仅一侧见线小幅纠偏；双中均在且无外侧时压低误差。
+ * @return 0 正常循迹；-1 四路均未见线（脱线）
  */
 int EnvCar_Tracking_Control(void)
 {
     int16_t base = g_EnvCar_Config.tracking_speed_base;
     int16_t left_speed = base;
     int16_t right_speed = base;
-    uint8_t raw = LineTrack_ReadRaw5();
+    /* bit0 外左(Gay4) … bit3 外右(Gay1)，与车头从左到右一致 */
+    uint8_t raw = LineTrack_ReadSpatial4();
 
-    /* 五路权重误差：左负右正（Gay1..Gay5 => -2,-1,0,+1,+2） */
-    int8_t w_sum = 0;
-    uint8_t n = 0;
-    if (raw & (1U << 0)) { w_sum += 3; n++; }
-    if (raw & (1U << 1)) { w_sum += 2; n++; }
-    if (raw & (1U << 2)) { w_sum += 0;  n++; }
-    if (raw & (1U << 3)) { w_sum += -2;  n++; }
-    if (raw & (1U << 4)) { w_sum += -3;  n++; }
+    bool g1 = (raw & (1U << 0)) != 0U;
+    bool g2 = (raw & (1U << 1)) != 0U;
+    bool g3 = (raw & (1U << 2)) != 0U;
+    bool g4 = (raw & (1U << 3)) != 0U;
+
+    uint8_t n = (uint8_t)((g1 ? 1U : 0U) + (g2 ? 1U : 0U) + (g3 ? 1U : 0U) + (g4 ? 1U : 0U));
 
     if (n == 0U) {
-        s_track_dbg_raw5 = raw;
-        s_track_dbg_wsum = w_sum;
-        s_track_dbg_count = n;
+        s_track_dbg_raw4 = raw;
+        s_track_dbg_err100 = 0;
+        s_track_dbg_count = 0;
         s_track_dbg_delta = 0;
         s_track_dbg_left_speed = 0;
         s_track_dbg_right_speed = 0;
@@ -688,16 +688,56 @@ int EnvCar_Tracking_Control(void)
         return -1;
     }
 
-    /* 平均误差 e ∈ [-2,2]，按差速比例修正 */
-    float e = (float)w_sum / (float)n;
-    float k = 1.0f; /* 经验比例，值越大转向越激进 */
+    /*
+     * 误差方向与原先五路加权一致：左侧见线贡献为正 → e>0 → delta>0 → left=base+delta 更快。
+     * （与旧版 Gay1..+、Gay5..- 同一套差速习惯，避免电机接线侧反了。）
+     */
+    int32_t e100 = 0;
+
+    /* 外侧见线：大幅纠偏（左右对称；系数为原先外侧权重的 2 倍） */
+    if (g1) {
+        e100 += 1000;
+    }
+    if (g4) {
+        e100 -= 1000;
+    }
+    if (g1 && g4) {
+        e100 = 0;
+    }
+
+    /* 中间两路：仅一侧见线时小幅纠偏 */
+    if (g2 != g3) {
+        if (g2) {
+            e100 += 45;
+        }
+        if (g3) {
+            e100 -= 45;
+        }
+    }
+
+    /* 双中均在黑线上、且外侧都未见线：认为对中较好，减弱残余误差减少蛇形 */
+    if (g2 && g3 && !g1 && !g4) {
+        e100 /= 4;
+    }
+
+    float e = (float)e100 / 100.0f;
+    float k = 1.0f;
     int16_t delta = (int16_t)(k * e * (float)base);
+
+    /* 差速上限：原为 0.9*base，放宽为与基准同量级（100% base） */
+    int16_t max_d = base;
+    if (delta > max_d) {
+        delta = max_d;
+    }
+    if (delta < (int16_t)-max_d) {
+        delta = (int16_t)-max_d;
+    }
 
     left_speed = (int16_t)(base + delta);
     right_speed = (int16_t)(base - delta);
 
-    s_track_dbg_raw5 = raw;
-    s_track_dbg_wsum = w_sum;
+    s_track_dbg_raw4 = raw;
+    s_track_dbg_err100 = (int16_t)e100;
     s_track_dbg_count = n;
     s_track_dbg_delta = delta;
     s_track_dbg_left_speed = left_speed;
@@ -793,44 +833,78 @@ int EnvCar_Gas_Monitor_Handle(void)
 
 /**
  * @brief OLED显示更新任务
- * @note 每 1s 翻页，循环显示：系统状态、气体数据、超声波数据。
+ * @note 默认：状态 + 甲烷 + 障碍物。循迹测试模式见 ENVCAR_OLED_TRACK_TEST_MODE。
  */
 void EnvCar_OLED_Display_Update(void)
 {
     static uint32_t s_last_update_tick;
-    static uint8_t s_prev_track_page;
     uint32_t current_tick = HAL_GetTick();
     char line[24];
     const char *state_text = "ERR";
+    uint16_t obs_cm = EnvCar_MinUltrasonicCm();
+    const char *obs_text;
 
 #if ENVCAR_OLED_TRACK_TEST_MODE
-    if (g_EnvCar_Config.mode == ENVCAR_MODE_AUTO &&
-        g_System_Status.current_state == ENVCAR_STATE_TRACKING) {
+    /* 循迹态：快刷显示灰度（空间序 4 位 + 硬件半字节）与左右轮设定速度 */
+    if (g_System_Status.current_state == ENVCAR_STATE_TRACKING) {
         if ((current_tick - s_last_update_tick) < ENVCAR_OLED_TRACK_REFRESH_MS) {
             return;
         }
         s_last_update_tick = current_tick;
-        s_prev_track_page = s_display_page;
+
+        uint8_t sp = LineTrack_ReadSpatial4();
+        uint8_t hw = LineTrack_ReadRaw4();
+        char s_bits[5];
+        s_bits[0] = (char)('0' + ((sp >> 0) & 1U));
+        s_bits[1] = (char)('0' + ((sp >> 1) & 1U));
+        s_bits[2] = (char)('0' + ((sp >> 2) & 1U));
+        s_bits[3] = (char)('0' + ((sp >> 3) & 1U));
+        s_bits[4] = '\0';
 
         (void)OLED_Clear(&s_oled_handle);
-        (void)OLED_ShowString(&s_oled_handle, 0, 0, "TRK TEST", 16);
-        (void)snprintf(line, sizeof(line), "R:%02X n:%u w:%d",
-                       (unsigned)s_track_dbg_raw5,
-                       (unsigned)s_track_dbg_count,
-                       (int)s_track_dbg_wsum);
+        (void)snprintf(line, sizeof(line), "S:%s H:%X n:%u", s_bits, (unsigned)(hw & 0x0FU),
+                       (unsigned)s_track_dbg_count);
+        (void)OLED_ShowString(&s_oled_handle, 0, 0, line, 16);
+        {
+            int ls = (int)s_track_dbg_left_speed;
+            int rs = (int)s_track_dbg_right_speed;
+            if (ls > 999) {
+                ls = 999;
+            }
+            if (ls < -999) {
+                ls = -999;
+            }
+            if (rs > 999) {
+                rs = 999;
+            }
+            if (rs < -999) {
+                rs = -999;
+            }
+            (void)snprintf(line, sizeof(line), "L:%4d R:%4d", ls, rs);
+        }
         (void)OLED_ShowString(&s_oled_handle, 0, 2, line, 16);
-        (void)snprintf(line, sizeof(line), "L:%d R:%d",
-                       (int)s_track_dbg_left_speed,
-                       (int)s_track_dbg_right_speed);
+        {
+            int de = (int)s_track_dbg_err100;
+            if (de > 9999) {
+                de = 9999;
+            }
+            if (de < -9999) {
+                de = -9999;
+            }
+            (void)snprintf(line, sizeof(line), "d:%4d e:%5d", (int)s_track_dbg_delta, de);
+        }
         (void)OLED_ShowString(&s_oled_handle, 0, 4, line, 16);
-        (void)snprintf(line, sizeof(line), "D:%d B:%d",
-                       (int)s_track_dbg_delta,
-                       (int)g_EnvCar_Config.tracking_speed_base);
+        if (obs_cm == 0U) {
+            obs_text = "N/A";
+        } else if (g_EnvCar_Config.obstacle_cfg.enable &&
+                   obs_cm < g_EnvCar_Config.obstacle_cfg.threshold_distance_cm) {
+            obs_text = "NEAR";
+        } else {
+            obs_text = "OK";
+        }
+        (void)snprintf(line, sizeof(line), "Ob:%ucm %s", (unsigned)obs_cm, obs_text);
         (void)OLED_ShowString(&s_oled_handle, 0, 6, line, 16);
         return;
-    }
-    if (s_display_page != s_prev_track_page) {
-        s_display_page = s_prev_track_page;
     }
 #endif
 
@@ -840,53 +914,34 @@ void EnvCar_OLED_Display_Update(void)
     }
     s_last_update_tick = current_tick;
 
-    /* 步骤2：翻页（0~2 循环） */
-    s_display_page = (uint8_t)((s_display_page + 1U) % 3U);
-
-    /* 步骤3：清屏后按页绘制 */
-    (void)OLED_Clear(&s_oled_handle);
-    switch (s_display_page) {
-        case 0:
-            /* 页面0：运行状态 + 报警 + 运行时间 */
-            switch (g_System_Status.current_state) {
-                case ENVCAR_STATE_IDLE:          state_text = "IDLE";  break;
-                case ENVCAR_STATE_TRACKING:      state_text = "TRACK"; break;
-                case ENVCAR_STATE_OBSTACLE_ALARM:state_text = "OBST";  break;
-                case ENVCAR_STATE_GAS_ALARM:     state_text = "GAS";   break;
-                case ENVCAR_STATE_MANUAL_CTRL:   state_text = "MANU";  break;
-                default:                         state_text = "ERR";   break;
-            }
-            (void)OLED_ShowString(&s_oled_handle, 0, 0, "State:", 16);
-            (void)OLED_ShowString(&s_oled_handle, 48, 0, state_text, 16);
-            (void)snprintf(line, sizeof(line), "Alm:%u", (unsigned)g_System_Status.alarm_type);
-            (void)OLED_ShowString(&s_oled_handle, 0, 2, line, 16);
-            (void)snprintf(line, sizeof(line), "T:%lus", (unsigned long)g_System_Status.system_run_time_s);
-            (void)OLED_ShowString(&s_oled_handle, 0, 4, line, 16);
-            break;
-
-        case 1:
-            /* 页面1：气体传感器数据 */
-            (void)OLED_ShowString(&s_oled_handle, 0, 0, "Gas ppm:", 16);
-            (void)snprintf(line, sizeof(line), "%.1f", (double)g_Sensor_Data.gas_concentration_ppm);
-            (void)OLED_ShowString(&s_oled_handle, 0, 2, line, 16);
-            (void)snprintf(line, sizeof(line), "ADC:%lu", (unsigned long)g_Sensor_Data.gas_adc_value);
-            (void)OLED_ShowString(&s_oled_handle, 0, 4, line, 16);
-            break;
-
-        case 2:
-        default:
-            /* 页面2：当前关键传感器（超声 + 红外） */
-            (void)snprintf(line, sizeof(line), "US1:%ucm",
-                           (unsigned)g_Sensor_Data.ultrasonic1_distance_cm);
-            (void)OLED_ShowString(&s_oled_handle, 0, 0, line, 16);
-            (void)snprintf(line, sizeof(line), "IR:%u%u%u",
-                           (unsigned)g_Sensor_Data.ir_left,
-                           (unsigned)g_Sensor_Data.ir_center,
-                           (unsigned)g_Sensor_Data.ir_right);
-            (void)OLED_ShowString(&s_oled_handle, 0, 2, line, 16);
-            (void)OLED_ShowString(&s_oled_handle, 0, 4, "US2:N/A", 16);
-            break;
+    /* 步骤2：状态字符串映射 */
+    switch (g_System_Status.current_state) {
+        case ENVCAR_STATE_IDLE:           state_text = "IDLE";  break;
+        case ENVCAR_STATE_TRACKING:       state_text = "TRACK"; break;
+        case ENVCAR_STATE_OBSTACLE_ALARM: state_text = "OBST";  break;
+        case ENVCAR_STATE_GAS_ALARM:      state_text = "GAS";   break;
+        case ENVCAR_STATE_MANUAL_CTRL:    state_text = "MANU";  break;
+        default:                          state_text = "ERR";   break;
     }
+
+    /* 步骤3：障碍物距离文本（无回波/近障/安全） */
+    if (obs_cm == 0U) {
+        obs_text = "N/A";
+    } else if (g_EnvCar_Config.obstacle_cfg.enable &&
+               obs_cm < g_EnvCar_Config.obstacle_cfg.threshold_distance_cm) {
+        obs_text = "NEAR";
+    } else {
+        obs_text = "SAFE";
+    }
+
+    /* 步骤4：单页显示三类关键信息 */
+    (void)OLED_Clear(&s_oled_handle);
+    (void)snprintf(line, sizeof(line), "State:%s", state_text);
+    (void)OLED_ShowString(&s_oled_handle, 0, 0, line, 16);
+    (void)snprintf(line, sizeof(line), "CH4:%.1fppm", (double)g_Sensor_Data.gas_concentration_ppm);
+    (void)OLED_ShowString(&s_oled_handle, 0, 2, line, 16);
+    (void)snprintf(line, sizeof(line), "Obs:%ucm %s", (unsigned)obs_cm, obs_text);
+    (void)OLED_ShowString(&s_oled_handle, 0, 4, line, 16);
 }
 
 /**

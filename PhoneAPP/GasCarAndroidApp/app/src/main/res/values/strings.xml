@@ -22,4 +22,6 @@
     <string name="label_gas_low_enable">气体下限报警</string>
     <string name="label_gas_low_ppm">浓度下限（ppm）</string>
     <string name="label_gas_high_ppm">浓度上限（ppm）</string>
+    <string name="action_scroll_to_bottom">回到底部</string>
+    <string name="action_clear_raw">清空</string>
 </resources>

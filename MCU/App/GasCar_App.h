@@ -82,9 +82,9 @@ typedef struct {
 // 传感器数据
 typedef struct {
     // TODO: 红外循迹传感器数据（需要接口）
-    bool ir_left;                    // 左侧红外状态（黑线检测）
-    bool ir_center;                  // 中间红外状态
-    bool ir_right;                   // 右侧红外状态
+    bool ir_left;                    // 车体最左外传感器(Gay4)见黑线
+    bool ir_center;                  // 左中|右中 Gay3|Gay2 任一见黑线
+    bool ir_right;                   // 车体最右外传感器(Gay1)见黑线
     
     // 超声波距离数据
     uint16_t ultrasonic1_distance_cm; /**< 超声波1距离（厘米），由 ultrasonic_task1 更新 */

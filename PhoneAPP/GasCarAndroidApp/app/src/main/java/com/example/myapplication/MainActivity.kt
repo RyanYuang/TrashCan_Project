@@ -18,10 +18,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -157,7 +159,10 @@ fun MainScreen(
             ControlPanel(viewModel)
         }
         item {
-            RawDataPanel(rawLog)
+            RawDataPanel(
+                receivedData = rawLog,
+                onClear = { viewModel.clearRawLog() }
+            )
         }
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
@@ -393,8 +398,8 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
     val thresholdFb by viewModel.thresholdFeedback.collectAsState()
 
     var carSpeed by remember { mutableStateOf(50f) }
-    var obstacleDistance by remember { mutableStateOf(100f) }
-    var safeDistance by remember { mutableStateOf(110f) }
+    var obstacleDistance by remember { mutableStateOf(20f) }
+    var safeDistance by remember { mutableStateOf(30f) }
     var gasHigh by remember { mutableStateOf(500f) }
     var useGasLowAlarm by remember { mutableStateOf(false) }
     var gasLow by remember { mutableStateOf(10f) }
@@ -405,7 +410,7 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
     LaunchedEffect(obstacleDistance) {
         val minSafe = obstacleDistance + 1f
         if (safeDistance < minSafe) {
-            safeDistance = (obstacleDistance + 10f).coerceIn(minSafe, 500f)
+            safeDistance = (obstacleDistance + 10f).coerceIn(minSafe, 50f)
         }
     }
     LaunchedEffect(gasHigh, useGasLowAlarm) {
@@ -415,8 +420,8 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
     }
 
     val pushThreshold: () -> Unit = {
-        val trig = obstacleDistance.toInt().coerceIn(1, 499)
-        val safe = safeDistance.toInt().coerceIn(trig + 1, 500)
+        val trig = obstacleDistance.toInt().coerceIn(0, 49)
+        val safe = safeDistance.toInt().coerceIn(trig + 1, 50)
         val high = gasHigh.coerceAtLeast(1f)
         val low = if (useGasLowAlarm) {
             min(max(gasLow, 0.01f), high - 0.01f)
@@ -550,9 +555,9 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
             )
             Slider(
                 value = obstacleDistance,
-                onValueChange = { obstacleDistance = it },
+                onValueChange = { obstacleDistance = min(it, 49f) },
                 onValueChangeFinished = pushThreshold,
-                valueRange = 5f..200f
+                valueRange = 0f..50f
             )
             Text(
                 text = "${stringResource(R.string.label_obstacle_safe)}：${safeDistance.toInt()}",
@@ -562,7 +567,7 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
                 value = safeDistance,
                 onValueChange = { safeDistance = it },
                 onValueChangeFinished = pushThreshold,
-                valueRange = (obstacleDistance + 1f)..500f
+                valueRange = (obstacleDistance + 1f)..50f
             )
             HorizontalDivider(
                 modifier = Modifier.padding(vertical = 8.dp),
@@ -623,10 +628,28 @@ fun ControlPanel(viewModel: BluetoothViewModel) {
     }
 }
 
-/** 等宽展示累积原始接收文本（含 `$STS:`、`ECHO:` 等），不经业务解析。 */
+/** 等宽展示累积原始接收文本（含 `$STS:`、`ECHO:` 等），支持上下滚动、回底与清空。 */
 @Composable
-fun RawDataPanel(receivedData: String) {
+fun RawDataPanel(
+    receivedData: String,
+    onClear: () -> Unit
+) {
     val hScroll = rememberScrollState()
+    val vScroll = rememberScrollState()
+    var autoStickToBottom by remember { mutableStateOf(true) }
+    val isNearBottom = vScroll.maxValue - vScroll.value <= 6
+
+    LaunchedEffect(vScroll.value, vScroll.maxValue) {
+        if (!isNearBottom) {
+            autoStickToBottom = false
+        }
+    }
+    LaunchedEffect(receivedData, autoStickToBottom) {
+        if (autoStickToBottom) {
+            vScroll.scrollTo(vScroll.maxValue)
+        }
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -635,10 +658,28 @@ fun RawDataPanel(receivedData: String) {
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = stringResource(R.string.section_raw),
-                style = MaterialTheme.typography.titleMedium
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.section_raw),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!isNearBottom) {
+                        FilledTonalButton(
+                            onClick = { autoStickToBottom = true },
+                        ) {
+                            Text(stringResource(R.string.action_scroll_to_bottom))
+                        }
+                    }
+                    FilledTonalButton(onClick = onClear) {
+                        Text(stringResource(R.string.action_clear_raw))
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             Surface(
                 shape = MaterialTheme.shapes.small,
@@ -648,7 +689,9 @@ fun RawDataPanel(receivedData: String) {
                 Text(
                     text = if (receivedData.isBlank()) "（无）" else receivedData,
                     modifier = Modifier
+                        .heightIn(min = 120.dp, max = 260.dp)
                         .padding(12.dp)
+                        .verticalScroll(vScroll)
                         .horizontalScroll(hScroll),
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
