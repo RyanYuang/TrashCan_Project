@@ -17,7 +17,8 @@ void OLED2_ShowSignedNum(uint8_t Line, uint8_t Column, int32_t Number, uint8_t L
 void OLED2_ShowHexNum(uint8_t Line, uint8_t Column, uint32_t Number, uint8_t Length);
 void OLED2_ShowBinNum(uint8_t Line, uint8_t Column, uint32_t Number, uint8_t Length);
 void OLED2_ShowFloat(uint8_t Line, uint8_t Column, float Number, uint8_t Length, uint8_t Decimal_Places);
-
+void OLED2_ShowDegreeCelsius(uint8_t Line, uint8_t Column);
+void OLED2_ShowIcon24x24(uint8_t x, uint8_t y, const uint8_t *bitmap);
 
 
 #endif /* INC_OLED2_H_ */

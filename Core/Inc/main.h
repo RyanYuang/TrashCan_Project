@@ -75,6 +75,14 @@ void Error_Handler(void);
 #define UV_LED_GPIO_Port GPIOA
 #define UV_KEY_Pin GPIO_PIN_12
 #define UV_KEY_GPIO_Port GPIOA
+#define UV_LED2_Pin GPIO_PIN_2
+#define UV_LED2_GPIO_Port GPIOD
+#define Red2_Pin GPIO_PIN_3
+#define Red2_GPIO_Port GPIOB
+#define Green2_Pin GPIO_PIN_4
+#define Green2_GPIO_Port GPIOB
+#define Blue2_Pin GPIO_PIN_5
+#define Blue2_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

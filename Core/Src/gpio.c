@@ -55,13 +55,17 @@ void MX_GPIO_Init(void)
                           |beep2_Pin|Trig2_Pin|Trig1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12|GPIO_PIN_14, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12|GPIO_PIN_14|Red2_Pin|Green2_Pin
+                          |Blue2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13|GPIO_PIN_15, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(UV_LED_GPIO_Port, UV_LED_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(UV_LED2_GPIO_Port, UV_LED2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : Red_Pin Green_Pin Blue_Pin beep1_Pin
                            beep2_Pin Trig2_Pin Trig1_Pin */
@@ -98,6 +102,20 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(UV_KEY_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : UV_LED2_Pin */
+  GPIO_InitStruct.Pin = UV_LED2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(UV_LED2_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Red2_Pin Green2_Pin Blue2_Pin */
+  GPIO_InitStruct.Pin = Red2_Pin|Green2_Pin|Blue2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 }
 

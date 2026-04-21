@@ -97,6 +97,97 @@ void UV_Close(void)
 	HAL_GPIO_WritePin(UV_LED_GPIO_Port, UV_LED_Pin, GPIO_PIN_RESET);
 }
 
+void Red2_TurnOn(void)
+{
+	HAL_GPIO_WritePin(Red2_GPIO_Port, Red2_Pin, GPIO_PIN_SET);
+}
+
+void Red2_TurnOff(void)
+{
+	HAL_GPIO_WritePin(Red2_GPIO_Port, Red2_Pin, GPIO_PIN_RESET);
+}
+
+void Red2_Twinkle(unsigned char count)
+{
+	HAL_GPIO_WritePin(Red2_GPIO_Port, Red2_Pin, GPIO_PIN_SET);
+	if(count >= 10)
+	{
+		count = 10;
+	}
+	for(int i = 0; i < count; i++)
+	{
+		HAL_GPIO_WritePin(Red2_GPIO_Port, Red2_Pin, GPIO_PIN_RESET);
+		HAL_Delay(100);
+		HAL_GPIO_WritePin(Red2_GPIO_Port, Red2_Pin, GPIO_PIN_SET);
+		HAL_Delay(100);
+	}
+	HAL_GPIO_WritePin(Red2_GPIO_Port, Red2_Pin, GPIO_PIN_SET);
+}
+
+void Green2_TurnOn(void)
+{
+	HAL_GPIO_WritePin(Green2_GPIO_Port, Green2_Pin, GPIO_PIN_SET);
+}
+
+void Green2_TurnOff(void)
+{
+	HAL_GPIO_WritePin(Green2_GPIO_Port, Green2_Pin, GPIO_PIN_RESET);
+}
+
+void Green2_Twinkle(unsigned char count)
+{
+	HAL_GPIO_WritePin(Green2_GPIO_Port, Green2_Pin, GPIO_PIN_SET);
+	if(count >= 10)
+	{
+		count = 10;
+	}
+	for(int i = 0; i < count; i++)
+	{
+		HAL_GPIO_WritePin(Green2_GPIO_Port, Green2_Pin, GPIO_PIN_RESET);
+		HAL_Delay(100);
+		HAL_GPIO_WritePin(Green2_GPIO_Port, Green2_Pin, GPIO_PIN_SET);
+		HAL_Delay(100);
+	}
+	HAL_GPIO_WritePin(Green2_GPIO_Port, Green2_Pin, GPIO_PIN_SET);
+}
+
+void Blue2_TurnOn(void)
+{
+	HAL_GPIO_WritePin(Blue2_GPIO_Port, Blue2_Pin, GPIO_PIN_SET);
+}
+
+void Blue2_TurnOff(void)
+{
+	HAL_GPIO_WritePin(Blue2_GPIO_Port, Blue2_Pin, GPIO_PIN_RESET);
+}
+
+void Blue2_Twinkle(unsigned char count)
+{
+	HAL_GPIO_WritePin(Blue2_GPIO_Port, Blue2_Pin, GPIO_PIN_SET);
+	if(count >= 10)
+	{
+		count = 10;
+	}
+	for(int i = 0; i < count; i++)
+	{
+		HAL_GPIO_WritePin(Blue2_GPIO_Port, Blue2_Pin, GPIO_PIN_RESET);
+		HAL_Delay(100);
+		HAL_GPIO_WritePin(Blue2_GPIO_Port, Blue2_Pin, GPIO_PIN_SET);
+		HAL_Delay(100);
+	}
+	HAL_GPIO_WritePin(Blue2_GPIO_Port, Blue2_Pin, GPIO_PIN_SET);
+}
+
+void UV2_Open(void)
+{
+	HAL_GPIO_WritePin(UV_LED2_GPIO_Port, UV_LED2_Pin, GPIO_PIN_SET);
+}
+
+void UV2_Close(void)
+{
+	HAL_GPIO_WritePin(UV_LED2_GPIO_Port, UV_LED2_Pin, GPIO_PIN_RESET);
+}
+
 /**
  * @brief       UV灯按键检测和控制
  * @param       无
@@ -126,11 +217,13 @@ void UV_Key_Scan(void)
 				if(uv_state == 0)
 				{
 					UV_Open();
+					UV2_Open();
 					uv_state = 1;
 				}
 				else
 				{
 					UV_Close();
+					UV2_Close();
 					uv_state = 0;
 				}
 			}
@@ -142,3 +235,4 @@ void UV_Key_Scan(void)
 		key_state = 0;
 	}
 }
+

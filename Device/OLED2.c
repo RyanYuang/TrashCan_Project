@@ -350,10 +350,43 @@ void OLED2_Init(void)
 
    OLED2_WriteCommand(0xA6); //设置正常/倒转显示
 
-   OLED2_WriteCommand(0x8D); //设置充电泵
-   OLED2_WriteCommand(0x14);
+   OLED2_WriteCommand(0x8D);	//设置充电泵
+	OLED2_WriteCommand(0x14);
 
-   OLED2_WriteCommand(0xAF); //开启显示
+	OLED2_WriteCommand(0xAF);	//开启显示
 
-   OLED2_Clear(); //OLED清屏
+	OLED2_Clear();				//OLED清屏
+}
+
+/**
+  * @brief OLED显示温度符号 °C
+  * @param Line 行位置，范围：1~4
+  * @param Column 列位置，范围：1~16（显示 °，C 会在下一列）
+  * @retval 无
+  */
+void OLED2_ShowDegreeCelsius(uint8_t Line, uint8_t Column)
+{
+	OLED2_ShowChar(Line, Column, 127);
+   OLED2_ShowChar(Line, Column + 1, 'C');
+}
+
+/**
+  * @brief  OLED显示24×24位图图标
+  * @param  x 起始X坐标 (0~104，因为24像素宽，127-24=103)
+  * @param  y 起始Y页坐标 (0~5，因为24像素高占3页，8-3=5)
+  * @param  bitmap 24×24字模数据（72字节，列行式，阴码）
+  * @retval 无
+  */
+void OLED2_ShowIcon24x24(uint8_t x, uint8_t y, const uint8_t *bitmap)
+{
+    uint8_t i, j;
+    
+    for (j = 0; j < 3; j++)  // 3页（24像素高 / 8 = 3）
+    {
+        OLED2_SetCursor(y + j, x);  // 设置光标到对应页
+        for (i = 0; i < 24; i++)   // 24列（24像素宽）
+        {
+            OLED2_WriteData(bitmap[j * 24 + i]);
+        }
+    }
 }
