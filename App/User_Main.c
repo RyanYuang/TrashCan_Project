@@ -152,21 +152,14 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		  OLED2_ShowString(4, 1, "Not Full");
 	  }
 
+      // 烟雾报警只控制蜂鸣器，RGB灯在主循环按优先级统一控制
       if(value1 >= 1500) //厨余垃圾烟雾报警
       {
     	  Beep1_TurnOn();
-		  Blue_TurnOn();
       }
-	  else {
-		  Blue_TurnOff();
-	  }
       if(value4 >= 1500) //干垃圾烟雾报警
 	  {
 		Beep2_TurnOn();
-		Blue2_TurnOn();
-	  }
-	  else {
-		Blue2_TurnOff();
 	  }
     }
 }
@@ -258,7 +251,7 @@ void User_Main(void)
 		OLED_ShowString(2, 14, "%");
 		OLED_ShowIcon24x24(104, 5, HOURGLASS_ICON);	// 显示图标在 (x=52, y=2) 屏幕中央
 
-		// OLED_ShowNum(3, 8, season_modle, 1); // 季节模式打印
+		OLED_ShowNum(3, 8, season_modle, 1); // 季节模式打印
 
 		AHT302_Read(&temperature2, &humidity2);  // 温湿度
 		OLED2_ShowFloat(2, 1, temperature2, 2, 2);
@@ -268,148 +261,148 @@ void User_Main(void)
 		OLED2_ShowIcon24x24(104, 5, ICON_24x24);	// 显示图标在 (x=52, y=2) 屏幕中央
 
 		if(season_modle == 1) { // 春季模式
-			if(temperature <= 20 || temperature >= 25) { //厨余垃圾温度报警
+			// 厨余垃圾 RGB 优先级：烟雾蓝 > 温度红 > 湿度绿
+			if(value1 >= 1500) {                                      //烟雾最高优先级
 				Beep1_TurnOn();
-				Red_TurnOn();
+				Blue_TurnOn(); Red_TurnOff(); Green_TurnOff();
 			}
-			else {
-				Red_TurnOff();
-			}
-			if(temperature2 <= 20 || temperature2 >= 25) { //干垃圾温度报警
-				Beep2_TurnOn();
-				Red2_TurnOn();
-			}
-			else {
-				Red2_TurnOff();
-			}
-			if(humidity <= 50 || humidity >= 70) {  //厨余垃圾湿度报警
+			else if(temperature <= 20 || temperature >= 25) {         //温度次优先级
 				Beep1_TurnOn();
-				Green_TurnOn();	
+				Red_TurnOn(); Blue_TurnOff(); Green_TurnOff();
 			}
-			else {
-				Green_TurnOff();
+			else if(humidity <= 50 || humidity >= 70) {               //湿度最低优先级
+				Beep1_TurnOn();
+				Green_TurnOn(); Blue_TurnOff(); Red_TurnOff();
 			}
-			if(humidity2 <= 50 || humidity2 >= 70) { //干垃圾湿度报警
-				Beep2_TurnOn();
-				Green2_TurnOn();	
-			}
-			else {
-				Green2_TurnOff();
-			}
-			if(value1 < 1500 && temperature > 20 && temperature < 25 && humidity < 80 && humidity > 50) { //厨余垃圾烟雾、温度、湿度报警解除
+			else {                                                     //全部正常
+				Blue_TurnOff(); Red_TurnOff(); Green_TurnOff();
 				Beep1_TurnOff();
-			} 
-			if(value4 < 1500 && temperature2 > 20 && temperature2 < 25 && humidity2 < 80 && humidity2 > 50) { //干垃圾烟雾、温度、湿度报警解除
-				Beep2_TurnOff();		
+			}
+			// 干垃圾 RGB 优先级：烟雾蓝 > 温度红 > 湿度绿
+			if(value4 >= 1500) {                                      //烟雾最高优先级
+				Beep2_TurnOn();
+				Blue2_TurnOn(); Red2_TurnOff(); Green2_TurnOff();
+			}
+			else if(temperature2 <= 20 || temperature2 >= 25) {       //温度次优先级
+				Beep2_TurnOn();
+				Red2_TurnOn(); Blue2_TurnOff(); Green2_TurnOff();
+			}
+			else if(humidity2 <= 50 || humidity2 >= 70) {             //湿度最低优先级
+				Beep2_TurnOn();
+				Green2_TurnOn(); Blue2_TurnOff(); Red2_TurnOff();
+			}
+			else {                                                     //全部正常
+				Blue2_TurnOff(); Red2_TurnOff(); Green2_TurnOff();
+				Beep2_TurnOff();
 			}
 		}
 		else if(season_modle == 2) { // 夏季模式
-			if(temperature <= 25 || temperature >= 30) { //厨余垃圾温度报警
+			// 厨余垃圾 RGB 优先级：烟雾蓝 > 温度红 > 湿度绿
+			if(value1 >= 1500) {
 				Beep1_TurnOn();
-				Red_TurnOn();
+				Blue_TurnOn(); Red_TurnOff(); Green_TurnOff();
 			}
-			else {
-				Red_TurnOff();
-			}
-			if(temperature2 <= 25 || temperature2 >= 30) { //干垃圾温度报警
-				Beep2_TurnOn();
-				Red2_TurnOn();
-			}
-			else {
-				Red2_TurnOff();
-			}
-			if(humidity <= 60 || humidity >= 80) {  //厨余垃圾湿度报警
+			else if(temperature <= 25 || temperature >= 30) {
 				Beep1_TurnOn();
-				Green_TurnOn();	
+				Red_TurnOn(); Blue_TurnOff(); Green_TurnOff();
+			}
+			else if(humidity <= 60 || humidity >= 80) {
+				Beep1_TurnOn();
+				Green_TurnOn(); Blue_TurnOff(); Red_TurnOff();
 			}
 			else {
-				Green_TurnOff();
-			}
-			if(humidity2 <= 60 || humidity2 >= 80) { //干垃圾湿度报警
-				Beep2_TurnOn();
-				Green2_TurnOn();	
-			}
-			else {
-				Green2_TurnOff();
-			}
-			if(value1 < 1500 && temperature > 25 && temperature < 30 && humidity < 80 && humidity > 60) { //厨余垃圾烟雾、温度、湿度报警解除
+				Blue_TurnOff(); Red_TurnOff(); Green_TurnOff();
 				Beep1_TurnOff();
-			}	
-			if(value4 < 1500 && temperature2 > 25 && temperature2 < 30 && humidity2 < 80 && humidity2 > 60) { //干垃圾烟雾、温度、湿度报警解除
-				Beep2_TurnOff();		
+			}
+			// 干垃圾 RGB 优先级：烟雾蓝 > 温度红 > 湿度绿
+			if(value4 >= 1500) {
+				Beep2_TurnOn();
+				Blue2_TurnOn(); Red2_TurnOff(); Green2_TurnOff();
+			}
+			else if(temperature2 <= 25 || temperature2 >= 30) {
+				Beep2_TurnOn();
+				Red2_TurnOn(); Blue2_TurnOff(); Green2_TurnOff();
+			}
+			else if(humidity2 <= 60 || humidity2 >= 80) {
+				Beep2_TurnOn();
+				Green2_TurnOn(); Blue2_TurnOff(); Red2_TurnOff();
+			}
+			else {
+				Blue2_TurnOff(); Red2_TurnOff(); Green2_TurnOff();
+				Beep2_TurnOff();
 			}
 		}
 		else if(season_modle == 3) { // 秋季模式
-			if(temperature <= 15 || temperature >= 22) { //厨余垃圾温度报警
+			// 厨余垃圾 RGB 优先级：烟雾蓝 > 温度红 > 湿度绿
+			if(value1 >= 1500) {
 				Beep1_TurnOn();
-				Red_TurnOn();
+				Blue_TurnOn(); Red_TurnOff(); Green_TurnOff();
 			}
-			else {
-				Red_TurnOff();
-			}
-			if(temperature2 <= 15 || temperature2 >= 22) { //干垃圾温度报警
-				Beep2_TurnOn();
-				Red2_TurnOn();
-			}
-			else {
-				Red2_TurnOff();
-			}
-			if(humidity <= 46 || humidity >= 65) {  //厨余垃圾湿度报警
+			else if(temperature <= 15 || temperature >= 22) {
 				Beep1_TurnOn();
-				Green_TurnOn();	
+				Red_TurnOn(); Blue_TurnOff(); Green_TurnOff();
+			}
+			else if(humidity <= 46 || humidity >= 65) {
+				Beep1_TurnOn();
+				Green_TurnOn(); Blue_TurnOff(); Red_TurnOff();
 			}
 			else {
-				Green_TurnOff();
-			}
-			if(humidity2 <= 46 || humidity2 >= 65) { //干垃圾湿度报警
-				Beep2_TurnOn();
-				Green2_TurnOn();	
-			}
-			else {
-				Green2_TurnOff();
-			}
-			if(value1 < 1500 && temperature > 15 && temperature < 22 && humidity < 65 && humidity > 46) { //厨余垃圾烟雾、温度、湿度报警解除
+				Blue_TurnOff(); Red_TurnOff(); Green_TurnOff();
 				Beep1_TurnOff();
-			}	
-			if(value4 < 1500 && temperature2 > 15 && temperature2 < 22 && humidity2 < 65 && humidity2 > 46) { //干垃圾烟雾、温度、湿度报警解除
-				Beep2_TurnOff();		
-			}	
+			}
+			// 干垃圾 RGB 优先级：烟雾蓝 > 温度红 > 湿度绿
+			if(value4 >= 1500) {
+				Beep2_TurnOn();
+				Blue2_TurnOn(); Red2_TurnOff(); Green2_TurnOff();
+			}
+			else if(temperature2 <= 15 || temperature2 >= 22) {
+				Beep2_TurnOn();
+				Red2_TurnOn(); Blue2_TurnOff(); Green2_TurnOff();
+			}
+			else if(humidity2 <= 46 || humidity2 >= 65) {
+				Beep2_TurnOn();
+				Green2_TurnOn(); Blue2_TurnOff(); Red2_TurnOff();
+			}
+			else {
+				Blue2_TurnOff(); Red2_TurnOff(); Green2_TurnOff();
+				Beep2_TurnOff();
+			}
 		}
 		else if(season_modle == 4) { // 冬季模式
-			if(temperature <= 5 || temperature >= 15) { //厨余垃圾温度报警
+			// 厨余垃圾 RGB 优先级：烟雾蓝 > 温度红 > 湿度绿
+			if(value1 >= 1500) {
 				Beep1_TurnOn();
-				Red_TurnOn();
+				Blue_TurnOn(); Red_TurnOff(); Green_TurnOff();
 			}
-			else {
-				Red_TurnOff();
-			}
-			if(temperature2 <= 5 || temperature2 >= 15) { //干垃圾温度报警
-				Beep2_TurnOn();
-				Red2_TurnOn();
-			}
-			else {
-				Red2_TurnOff();
-			}
-			if(humidity <= 30 || humidity >= 50) {  //厨余垃圾湿度报警
+			else if(temperature <= 5 || temperature >= 15) {
 				Beep1_TurnOn();
-				Green_TurnOn();	
+				Red_TurnOn(); Blue_TurnOff(); Green_TurnOff();
+			}
+			else if(humidity <= 30 || humidity >= 50) {
+				Beep1_TurnOn();
+				Green_TurnOn(); Blue_TurnOff(); Red_TurnOff();
 			}
 			else {
-				Green_TurnOff();
-			}
-			if(humidity2 <= 30 || humidity2 >= 50) { //干垃圾湿度报警
-				Beep2_TurnOn();
-				Green2_TurnOn();	
-			}
-			else {
-				Green2_TurnOff();
-			}
-			if(value1 < 1500 && temperature > 5 && temperature < 15 && humidity < 50 && humidity > 30) { //厨余垃圾烟雾、温度、湿度报警解除
+				Blue_TurnOff(); Red_TurnOff(); Green_TurnOff();
 				Beep1_TurnOff();
-			}	
-			if(value4 < 1500 && temperature2 > 5 && temperature2 < 15 && humidity2 < 50 && humidity2 > 30) { //干垃圾烟雾、温度、湿度报警解除
-				Beep2_TurnOff();		
-			}	
+			}
+			// 干垃圾 RGB 优先级：烟雾蓝 > 温度红 > 湿度绿
+			if(value4 >= 1500) {
+				Beep2_TurnOn();
+				Blue2_TurnOn(); Red2_TurnOff(); Green2_TurnOff();
+			}
+			else if(temperature2 <= 5 || temperature2 >= 15) {
+				Beep2_TurnOn();
+				Red2_TurnOn(); Blue2_TurnOff(); Green2_TurnOff();
+			}
+			else if(humidity2 <= 30 || humidity2 >= 50) {
+				Beep2_TurnOn();
+				Green2_TurnOn(); Blue2_TurnOff(); Red2_TurnOff();
+			}
+			else {
+				Blue2_TurnOff(); Red2_TurnOff(); Green2_TurnOff();
+				Beep2_TurnOff();
+			}
 		}
     }
 }
