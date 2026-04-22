@@ -5,6 +5,7 @@
  *      Author: zeng
  */
 #include "rgb.h"
+#include "User_Main.h"
 
 void Red_TurnOn(void)
 {
@@ -197,7 +198,6 @@ void UV2_Close(void)
 void UV_Key_Scan(void)
 {
 	static uint8_t key_state = 0;  // 0=未按下, 1=已按下
-	static uint8_t uv_state = 0;   // 0=关闭, 1=打开
 
 	// 读取按键状态（低电平=按下）
 	if(HAL_GPIO_ReadPin(UV_KEY_GPIO_Port, UV_KEY_Pin) == GPIO_PIN_SET)
@@ -213,18 +213,14 @@ void UV_Key_Scan(void)
 			{
 				key_state = 1;  // 标记按键已按下
 
-				// 切换UV灯状态
-				if(uv_state == 0)
+				// 直接读取状态机状态决策，避免局部变量不同步
+				if(uv_disinfect_state == UV_RUNNING)
 				{
-					UV_Open();
-					UV2_Open();
-					uv_state = 1;
+					UV_Disinfect_Stop();   // 运行中 → 手动暂停（保留剩余时间）
 				}
 				else
 				{
-					UV_Close();
-					UV2_Close();
-					uv_state = 0;
+					UV_Disinfect_Start();  // 其他状态 → 启动/续时
 				}
 			}
 		}

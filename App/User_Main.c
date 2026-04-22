@@ -31,6 +31,88 @@ int flag2 = 0; // 1-语音开 0-语音关
 int full_flag1 = 0; // 1-full 0-not full
 int full_flag2 = 0; // 1-full 0-not full
 
+/* UV消毒状态机（枚举定义在 User_Main.h）*/
+
+#define UV_TOTAL_MS  (30UL * 60UL * 1000UL)  // 30分钟（毫秒）
+
+UV_State_t uv_disinfect_state = UV_IDLE;  // 全局变量，供外部访问
+static uint32_t   uv_remaining       = UV_TOTAL_MS;  // 剩余消毒时长(ms)
+static uint32_t   uv_tick            = 0;            // 本段计时起点
+static uint8_t    uv_alarm_active    = 0;            // 报警标志（由主循环更新）
+
+/* 启动消毒：只有从IDLE启动时才重置时间，从暂停续时则保留 */
+void UV_Disinfect_Start(void)
+{
+    if(uv_disinfect_state == UV_IDLE)
+    {
+        uv_remaining = UV_TOTAL_MS;
+    }
+    uv_tick            = HAL_GetTick();
+    UV_Open();
+    UV2_Open();
+    uv_disinfect_state = UV_RUNNING;
+}
+
+/* 手动停止消毒：记录剩余时长，关灯，进入手动暂停（不会自动续时） */
+void UV_Disinfect_Stop(void)
+{
+    if(uv_disinfect_state == UV_RUNNING)
+    {
+        uint32_t elapsed = HAL_GetTick() - uv_tick;
+        uv_remaining = (elapsed >= uv_remaining) ? 0 : (uv_remaining - elapsed);
+    }
+    UV_Close();
+    UV2_Close();
+    uv_disinfect_state = UV_MANUAL_PAUSED;  // 手动暂停，不自动续时
+}
+
+/* 消毒任务：在主循环中轮询调用 */
+static void UV_Disinfect_Task(void)
+{
+    uint32_t now = HAL_GetTick();
+    // 需要暂停的条件：任意桶盖开 OR 有报警（烟雾/温湿度/满桶）
+    uint8_t should_pause = (servo1_state || servo2_state || uv_alarm_active);
+
+    switch(uv_disinfect_state)
+    {
+        case UV_IDLE:
+        case UV_MANUAL_PAUSED:
+            // 空闲或手动暂停：不自动操作，等待按键/语音触发
+            break;
+
+        case UV_RUNNING:
+            if(should_pause)
+            {
+                // 需要暂停：记录剩余时长，关灯
+                uint32_t elapsed = now - uv_tick;
+                uv_remaining = (elapsed >= uv_remaining) ? 0 : (uv_remaining - elapsed);
+                UV_Close();
+                UV2_Close();
+                uv_disinfect_state = UV_PAUSED;
+            }
+            else if((now - uv_tick) >= uv_remaining)
+            {
+                // 消毒完成
+                UV_Close();
+                UV2_Close();
+                uv_remaining       = UV_TOTAL_MS;
+                uv_disinfect_state = UV_IDLE;
+            }
+            break;
+
+        case UV_PAUSED:
+            if(!should_pause)
+            {
+                // 桶盖关闭且无报警：自动续时，开灯
+                uv_tick            = HAL_GetTick();
+                UV_Open();
+                UV2_Open();
+                uv_disinfect_state = UV_RUNNING;
+            }
+            break;
+    }
+}
+
 // 24×24 图标字模（阴码，列行式，高位在前）
 // 数据量：72字节
 const uint8_t ICON_24x24[72] = {
@@ -189,27 +271,25 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 		}
 		else if(receive_buffer[0] == 5)
 		{
-			UV_Open();   // 语音控制打开紫外灯
-			UV2_Open();  // 语音控制打开紫外灯
+			UV_Disinfect_Start();  // 语音控制启动消毒（30分钟计时）
 		}
 		else if(receive_buffer[0] == 6)
 		{
-			UV_Close();   // 语音控制关闭紫外灯
-			UV2_Close();  // 语音控制关闭紫外灯
+			UV_Disinfect_Stop();   // 语音控制停止消毒
 		}
-		else if(receive_buffer[0] == 7)
+		else if(receive_buffer[0] == 0x07)
 		{
 			season_modle = 1; // 春
 		}
-		else if(receive_buffer[0] == 8)
+		else if(receive_buffer[0] == 0x08)
 		{
 			season_modle = 2; // 夏
 		}
-		else if(receive_buffer[0] == 9)
+		else if(receive_buffer[0] == 0x09)
 		{
 			season_modle = 3; // 秋
 		}
-		else if(receive_buffer[0] == 10)
+		else if(receive_buffer[0] == 0x10)
 		{
 			season_modle = 4; // 冬
 		}
@@ -239,7 +319,30 @@ void User_Main(void)
 		HAL_UART_Receive_DMA(&huart2, receive_buffer, 1);
 		ultrasonic_task1();// 超声波1
 		ultrasonic_task2();// 超声波2
-		UV_Key_Scan();     // UV灯按键扫描 
+		UV_Key_Scan();     // UV灯按键扫描
+		UV_Disinfect_Task(); // UV消毒计时状态机
+
+		// OLED2 第3行显示剩余消毒时间
+		if(uv_disinfect_state == UV_IDLE)
+		{
+			OLED2_ShowString(3, 6, "--:--");
+		}
+		else
+		{
+			// 计算当前实际剩余时长（RUNNING状态需减去已过时间）
+			uint32_t display_ms = uv_remaining;
+			if(uv_disinfect_state == UV_RUNNING)
+			{
+				uint32_t elapsed = HAL_GetTick() - uv_tick;
+				display_ms = (elapsed >= uv_remaining) ? 0 : (uv_remaining - elapsed);
+			}
+			uint32_t total_sec = display_ms / 1000;
+			uint8_t  min       = total_sec / 60;
+			uint8_t  sec       = total_sec % 60;
+			OLED2_ShowNum(3, 6, min, 2);
+			OLED2_ShowString(3, 8, ":");
+			OLED2_ShowNum(3, 9, sec, 2);
+		}
 
 		OLED_ShowString(1, 1, "Food Waste");
 		OLED2_ShowString(1, 1, "Residual Waste");
@@ -251,7 +354,8 @@ void User_Main(void)
 		OLED_ShowString(2, 14, "%");
 		OLED_ShowIcon24x24(104, 5, HOURGLASS_ICON);	// 显示图标在 (x=52, y=2) 屏幕中央
 
-		OLED_ShowNum(3, 8, season_modle, 1); // 季节模式打印
+		OLED_ShowString(3, 6, "Mode:");	
+		OLED_ShowNum(3, 11, season_modle, 1); // 季节模式打印
 
 		AHT302_Read(&temperature2, &humidity2);  // 温湿度
 		OLED2_ShowFloat(2, 1, temperature2, 2, 2);
@@ -259,6 +363,24 @@ void User_Main(void)
 		OLED2_ShowFloat(2, 9, humidity2, 2, 2);
 		OLED2_ShowString(2, 14, "%");
 		OLED2_ShowIcon24x24(104, 5, ICON_24x24);	// 显示图标在 (x=52, y=2) 屏幕中央
+
+		// 更新UV消毒报警标志（优先级最低，有报警或满桶时暂停消毒）
+		uint8_t smoke_alarm    = (value1 >= 1500 || value4 >= 1500);
+		uint8_t full_alarm     = (full_flag1 || full_flag2);
+		uint8_t temp_humi_alarm = 0;
+		if(season_modle == 1)
+			temp_humi_alarm = (temperature<=20||temperature>=25||humidity<=50||humidity>=70||
+			                   temperature2<=20||temperature2>=25||humidity2<=50||humidity2>=70);
+		else if(season_modle == 2)
+			temp_humi_alarm = (temperature<=25||temperature>=30||humidity<=60||humidity>=80||
+			                   temperature2<=25||temperature2>=30||humidity2<=60||humidity2>=80);
+		else if(season_modle == 3)
+			temp_humi_alarm = (temperature<=15||temperature>=22||humidity<=46||humidity>=65||
+			                   temperature2<=15||temperature2>=22||humidity2<=46||humidity2>=65);
+		else if(season_modle == 4)
+			temp_humi_alarm = (temperature<=5||temperature>=15||humidity<=30||humidity>=50||
+			                   temperature2<=5||temperature2>=15||humidity2<=30||humidity2>=50);
+		uv_alarm_active = (smoke_alarm || full_alarm || temp_humi_alarm);
 
 		if(season_modle == 1) { // 春季模式
 			// 厨余垃圾 RGB 优先级：烟雾蓝 > 温度红 > 湿度绿
